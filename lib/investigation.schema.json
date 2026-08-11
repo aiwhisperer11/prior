@@ -1,0 +1,476 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SherlockInvestigation",
+  "description": "Complete snapshot of a Sherlock falsification-driven investigation. Returned by GPT-5.6 on every iteration. The client computes diffs between consecutive snapshots to visualize confidence changes, graveyard entries and revivals. ID conventions: evidence E1..En, hypotheses H1..Hn, anomalies A1..An, missing evidence M1..Mn, matrix items X1..Xn.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "meta",
+    "case",
+    "expectation_matrix",
+    "anomalies",
+    "hypotheses",
+    "missing_evidence",
+    "prime_suspect",
+    "coherence",
+    "open_case_index",
+    "next_test",
+    "mirror_question",
+    "learning"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Version of this schema, e.g. '1.0.0'. Allows the client to reject incompatible payloads."
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "case_title", "iteration", "domain"],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "description": "Stable identifier for the case, provided by the client and echoed back unchanged."
+        },
+        "case_title": {
+          "type": "string",
+          "description": "Short human-readable title for the investigation, e.g. 'Checkout 500 errors 23:10-23:40'."
+        },
+        "iteration": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Investigation iteration number. 1 = baseline analysis; >=2 means new evidence was added and prior state was re-evaluated."
+        },
+        "domain": {
+          "type": "string",
+          "description": "Free-text domain label, e.g. 'IT incident', 'industrial QC', 'finance'. Informative only; the engine is domain-independent."
+        }
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observed_outcome", "expected_behavior", "evidence"],
+      "properties": {
+        "observed_outcome": {
+          "type": "string",
+          "description": "What actually happened, as declared by the user. Verbatim or lightly normalized; never reinterpreted."
+        },
+        "expected_behavior": {
+          "type": "string",
+          "description": "What normal behavior should have looked like, as declared by the user. This is the ONLY anchor for 'expected but absent' items: omissions must be derivable from this declaration, never invented."
+        },
+        "evidence": {
+          "type": "array",
+          "description": "All evidence items known in this iteration, both user-provided and added in later iterations.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label", "content", "provided_in_iteration"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique evidence id, format 'E<number>'. Stable across iterations."
+              },
+              "label": {
+                "type": "string",
+                "description": "Short name, e.g. 'Deploy log', 'TLS renewal cron log'."
+              },
+              "content": {
+                "type": "string",
+                "description": "The evidence content or a faithful summary of it. No interpretation here; interpretation lives in hypothesis links."
+              },
+              "provided_in_iteration": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Iteration in which this evidence entered the case. Enables the client to highlight new evidence."
+              }
+            }
+          }
+        }
+      }
+    },
+    "expectation_matrix": {
+      "type": "object",
+      "description": "The 2x2 falsification matrix: expected/unexpected x present/absent. Every item must be classifiable into exactly one quadrant.",
+      "additionalProperties": false,
+      "required": ["expected_present", "unexpected_present", "expected_absent", "unexpected_absent"],
+      "properties": {
+        "expected_present": {
+          "type": "array",
+          "description": "Quadrant 1 - What happened normally: events that were expected and did occur. Baseline sanity; usually low investigative value.",
+          "items": { "$ref": "#/$defs/matrix_item" }
+        },
+        "unexpected_present": {
+          "type": "array",
+          "description": "Quadrant 2 - What appeared and should not be there: unexpected events that did occur. Classic anomaly territory.",
+          "items": { "$ref": "#/$defs/matrix_item" }
+        },
+        "expected_absent": {
+          "type": "array",
+          "description": "Quadrant 3 - THE KILLER QUADRANT. What should have appeared and did not: the dog that didn't bark. Each item MUST be justified by case.expected_behavior; the engine must never invent expectations not grounded in the declared normal behavior.",
+          "items": { "$ref": "#/$defs/matrix_item" }
+        },
+        "unexpected_absent": {
+          "type": "array",
+          "description": "Quadrant 4 - Absences that rule out or weaken hypotheses: things a given hypothesis would have produced, whose absence discriminates. Each item should reference the hypotheses it weakens.",
+          "items": { "$ref": "#/$defs/matrix_item" }
+        }
+      }
+    },
+    "anomalies": {
+      "type": "array",
+      "description": "First-class contradictions. An investigation starts with at least one anomaly. One anomaly can spawn multiple hypotheses.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "matrix_item_ids", "severity", "fully_explained", "hypothesis_ids"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique anomaly id, format 'A<number>'. Stable across iterations."
+          },
+          "description": {
+            "type": "string",
+            "description": "The contradiction stated plainly: what clashes with what."
+          },
+          "matrix_item_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Ids of expectation_matrix items that constitute this anomaly."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+            "description": "Investigative weight of the anomaly. NOTE: a small unexplained anomaly can outweigh a large partially-explained one; severity reflects discriminating power, not size."
+          },
+          "fully_explained": {
+            "type": "boolean",
+            "description": "True only if the current prime suspect accounts for this anomaly completely. Unexplained anomalies drive open_case_index up."
+          },
+          "hypothesis_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Hypotheses generated by or relevant to this anomaly."
+          }
+        }
+      }
+    },
+    "hypotheses": {
+      "type": "array",
+      "description": "All hypotheses ever considered, in every state. The Hypothesis Graveyard is the subset with status 'rejected'; it is a client-side view, not a separate entity. Ordered by confidence descending among active ones.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "statement",
+          "origin",
+          "status",
+          "confidence",
+          "supported_by",
+          "contradicted_by",
+          "expected_but_absent_ids",
+          "would_be_refuted_by",
+          "killed_by",
+          "resurrection_condition"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique hypothesis id, format 'H<number>'. Stable across iterations; never reuse ids."
+          },
+          "statement": {
+            "type": "string",
+            "description": "The hypothesis as a falsifiable claim."
+          },
+          "origin": {
+            "type": "string",
+            "enum": ["user", "sherlock"],
+            "description": "Whether the hypothesis was proposed by the user or generated by the engine."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "weakened", "rejected", "revived"],
+            "description": "Lifecycle state. 'weakened': seriously damaged but not eliminated. 'rejected': in the Graveyard; requires killed_by and resurrection_condition. 'revived': previously rejected, brought back by new evidence matching its resurrection_condition; must never revive without such evidence."
+          },
+          "confidence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Current confidence 0-100. Must DECREASE when the hypothesis fails to produce effects it should have produced (expected_but_absent_ids non-empty and unexplained)."
+          },
+          "supported_by": {
+            "type": "array",
+            "description": "Evidence in favor, each with the reasoning link.",
+            "items": { "$ref": "#/$defs/evidence_link" }
+          },
+          "contradicted_by": {
+            "type": "array",
+            "description": "Evidence against, each with the reasoning link.",
+            "items": { "$ref": "#/$defs/evidence_link" }
+          },
+          "expected_but_absent_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Ids of missing_evidence items this hypothesis SHOULD have produced. Non-empty means the hypothesis predicts effects that are not observed."
+          },
+          "would_be_refuted_by": {
+            "type": "string",
+            "description": "Mandatory self-refutation clause: which concrete datum would prove this hypothesis wrong. Every hypothesis must be falsifiable or it does not belong here."
+          },
+          "killed_by": {
+            "type": ["string", "null"],
+            "description": "Only for status 'rejected': the evidence id or datum that killed it. Null otherwise."
+          },
+          "resurrection_condition": {
+            "type": ["string", "null"],
+            "description": "Only for status 'rejected': the concrete condition under which it may return. Prevents dead explanations from resurfacing by wishful thinking. Null otherwise."
+          }
+        }
+      }
+    },
+    "missing_evidence": {
+      "type": "array",
+      "description": "The WALD section: data that should exist and is not available, classified by discriminating power.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "criticality", "impact_if_found", "related_hypothesis_ids"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique id, format 'M<number>'."
+          },
+          "description": {
+            "type": "string",
+            "description": "What is missing and where it should exist, anchored to case.expected_behavior or to a hypothesis prediction."
+          },
+          "criticality": {
+            "type": "string",
+            "enum": ["critical", "useful", "noise"],
+            "description": "'critical': could close or reopen the case. 'useful': would shift confidences. 'noise': would change little."
+          },
+          "impact_if_found": {
+            "type": "string",
+            "description": "How the interpretation would change if this evidence appeared, in both directions where relevant."
+          },
+          "related_hypothesis_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Hypotheses whose confidence this missing evidence affects."
+          }
+        }
+      }
+    },
+    "prime_suspect": {
+      "type": "object",
+      "description": "The single strongest current explanation, with its conviction and absolution conditions. Must correspond to the active hypothesis with highest confidence.",
+      "additionalProperties": false,
+      "required": ["hypothesis_id", "justification", "condemning_datum", "absolving_datum"],
+      "properties": {
+        "hypothesis_id": {
+          "type": "string",
+          "description": "Id of the leading hypothesis."
+        },
+        "justification": {
+          "type": "string",
+          "description": "Why it leads: which anomalies it explains that rivals do not, and which absences still count against it."
+        },
+        "condemning_datum": {
+          "type": "string",
+          "description": "The concrete datum that would confirm it."
+        },
+        "absolving_datum": {
+          "type": "string",
+          "description": "The concrete datum that would clear it."
+        }
+      }
+    },
+    "coherence": {
+      "type": "object",
+      "description": "How well the current best explanation accounts for the full picture. Score without explanation is forbidden: metrics must not be opaque.",
+      "additionalProperties": false,
+      "required": ["score", "explanation"],
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "0 = the leading explanation contradicts or ignores most of the picture; 100 = fully causally coherent."
+        },
+        "explanation": {
+          "type": "string",
+          "description": "What a rational observer expected, what actually happened, and why the score is what it is."
+        }
+      }
+    },
+    "open_case_index": {
+      "type": "object",
+      "description": "How much evidence remains unexplained (formerly 'Poirot index'). Measures unexplained evidence count and weight, not anomaly size: two small unexplained anomalies can outweigh one large partially-explained one.",
+      "additionalProperties": false,
+      "required": ["score", "explanation"],
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "0 = nearly everything is explained; 100 = large amount of evidence does not fit any current hypothesis."
+        },
+        "explanation": {
+          "type": "string",
+          "description": "Which specific items remain unexplained and why they keep the case open."
+        }
+      }
+    },
+    "next_test": {
+      "type": "object",
+      "description": "The single observation or experiment with the highest discriminating power between the top competing hypotheses. Sherlock is an investigator, not an oracle: this is its main output.",
+      "additionalProperties": false,
+      "required": ["description", "discriminates_between", "outcome_map"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "The concrete test, observation or datum to obtain next."
+        },
+        "discriminates_between": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "string" },
+          "description": "Hypothesis ids this test separates. Minimum two: a test that discriminates nothing is not a test."
+        },
+        "outcome_map": {
+          "type": "array",
+          "description": "What each possible result would mean.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["observed_result", "favors_hypothesis_id", "weakens_hypothesis_id"],
+            "properties": {
+              "observed_result": {
+                "type": "string",
+                "description": "A possible outcome of the test."
+              },
+              "favors_hypothesis_id": {
+                "type": ["string", "null"],
+                "description": "Hypothesis this outcome strengthens, or null if it strengthens none."
+              },
+              "weakens_hypothesis_id": {
+                "type": ["string", "null"],
+                "description": "Hypothesis this outcome weakens, or null if it weakens none."
+              }
+            }
+          }
+        }
+      }
+    },
+    "mirror_question": {
+      "type": "string",
+      "description": "The MIRROR: literally answer the question 'If in one week we discovered our prime suspect was false, which clue are we probably ignoring today?'. One question or short reflection; keeps the investigator honest."
+    },
+    "learning": {
+      "type": "object",
+      "description": "Bayesian-style update relative to the previous iteration. Present from iteration 1, where it acts as baseline.",
+      "additionalProperties": false,
+      "required": ["is_baseline", "summary", "updates"],
+      "properties": {
+        "is_baseline": {
+          "type": "boolean",
+          "description": "True only on iteration 1: establishes initial confidences with no prior to compare against."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Which hypothesis gains, which loses, which holds, and which evidence changed our mind. On baseline: why initial confidences are set as they are."
+        },
+        "updates": {
+          "type": "array",
+          "description": "Per-hypothesis deltas. On baseline, previous_* fields are null.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["hypothesis_id", "previous_confidence", "new_confidence", "previous_status", "new_status", "reason"],
+            "properties": {
+              "hypothesis_id": {
+                "type": "string",
+                "description": "Hypothesis affected."
+              },
+              "previous_confidence": {
+                "type": ["integer", "null"],
+                "minimum": 0,
+                "maximum": 100,
+                "description": "Confidence in previous iteration; null on baseline."
+              },
+              "new_confidence": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100,
+                "description": "Confidence now."
+              },
+              "previous_status": {
+                "type": ["string", "null"],
+                "enum": ["active", "weakened", "rejected", "revived", null],
+                "description": "Status in previous iteration; null on baseline."
+              },
+              "new_status": {
+                "type": "string",
+                "enum": ["active", "weakened", "rejected", "revived"],
+                "description": "Status now."
+              },
+              "reason": {
+                "type": "string",
+                "description": "The specific evidence or absence that caused the change. 'No change' is a valid reason."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "matrix_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "evidence_ids", "significance", "related_hypothesis_ids"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique matrix item id, format 'X<number>'."
+        },
+        "description": {
+          "type": "string",
+          "description": "The event or absence, stated concretely."
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Supporting evidence ids. May be empty for absences (quadrants 3 and 4), where the point is precisely that no evidence exists."
+        },
+        "significance": {
+          "type": "string",
+          "description": "Why this item matters to the investigation."
+        },
+        "related_hypothesis_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Hypotheses this item supports or weakens."
+        }
+      }
+    },
+    "evidence_link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "reason"],
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "description": "Id of the linked evidence item."
+        },
+        "reason": {
+          "type": "string",
+          "description": "The reasoning: why this evidence supports or contradicts the hypothesis. The Evidence -> supports/weakens -> reading format lives here."
+        }
+      }
+    }
+  }
+}

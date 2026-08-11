@@ -1,0 +1,57 @@
+{
+  "name": "sherlock_investigation",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "question": { "type": "string" },
+      "summary": { "type": "string" },
+      "hypotheses": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "label": { "type": "string" },
+            "description": { "type": "string" },
+            "confidence": { "type": "number" }
+          },
+          "required": ["id", "label", "description", "confidence"],
+          "additionalProperties": false
+        }
+      },
+      "expectations": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "statement": { "type": "string" }
+          },
+          "required": ["id", "statement"],
+          "additionalProperties": false
+        }
+      },
+      "matrix": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "hypothesisId": { "type": "string" },
+            "expectationId": { "type": "string" },
+            "consistency": {
+              "type": "string",
+              "enum": ["consistent", "inconsistent", "neutral"]
+            },
+            "notes": { "type": "string" }
+          },
+          "required": ["hypothesisId", "expectationId", "consistency", "notes"],
+          "additionalProperties": false
+        }
+      },
+      "conclusion": { "type": "string" }
+    },
+    "required": ["question", "summary", "hypotheses", "expectations", "matrix", "conclusion"],
+    "additionalProperties": false
+  }
+}

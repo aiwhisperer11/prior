@@ -1,0 +1,6 @@
+[
+  {
+    "label": "Certificate audit",
+    "content": "Audit of certificates presented by the payment service 23:05-23:40: the certificate presented from 23:10 to 23:37 had expired at 23:05. The 23:38 retry sweep installed a valid replacement certificate at 23:38:41; the first successful payment-provider handshake followed at 23:39:52. No provider-side incident is recorded for this window."
+  }
+]

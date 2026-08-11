@@ -1,0 +1,120 @@
+{
+  "schema_version": "1.0.0",
+  "meta": {
+    "case_id": "case-b-checkout",
+    "case_title": "Checkout 500 errors, 23:10-23:40",
+    "iteration": 1,
+    "domain": "IT incident"
+  },
+  "case": {
+    "observed_outcome": "E-commerce checkout returned a spike of HTTP 500 errors from 23:10 to 23:40. The on-call team blamed the 23:00 deploy and rolled it back at 23:25, but errors continued until 23:40 and then stopped on their own.",
+    "expected_behavior": "Deploys either cause immediate errors or none; a rollback removes any deploy-caused failure within minutes. The nightly TLS certificate renewal cron for the payment service runs at 23:05 and always writes a log line confirming renewal. Payment API calls succeed with valid certificates. Database latency stays under 50ms at that traffic level.",
+    "evidence": [
+      { "id": "E1", "label": "Deploy log", "content": "Deploy completed 23:00. Rollback completed 23:25. Error rate unchanged by rollback; errors ceased 23:40.", "provided_in_iteration": 1 },
+      { "id": "E2", "label": "DB latency metrics", "content": "Database latency stable at 22-35ms throughout the incident window.", "provided_in_iteration": 1 },
+      { "id": "E3", "label": "Payment provider log", "content": "Payment API rejecting connections 23:10-23:40 with TLS handshake failures. Connections resume 23:40.", "provided_in_iteration": 1 },
+      { "id": "E4", "label": "Cron scheduler log", "content": "Entries present for 22:00 and 00:00 jobs. No entry for the 23:05 TLS renewal job tonight. Retry sweep runs at 23:38.", "provided_in_iteration": 1 }
+    ]
+  },
+  "expectation_matrix": {
+    "expected_present": [
+      { "id": "X1", "description": "Database latency remained below 50ms during the incident.", "evidence_ids": ["E2"], "significance": "The normal database-latency expectation held, so it does not explain the checkout failures.", "related_hypothesis_ids": ["H2"] }
+    ],
+    "unexpected_present": [
+      { "id": "X2", "description": "Checkout returned HTTP 500 errors from 23:10 to 23:40.", "evidence_ids": ["E1"], "significance": "The failure is the observed outcome requiring explanation.", "related_hypothesis_ids": ["H1", "H3"] },
+      { "id": "X3", "description": "Payment API connections failed TLS handshakes during the checkout-error window.", "evidence_ids": ["E3"], "significance": "This is direct causal evidence for a payment certificate path failure.", "related_hypothesis_ids": ["H1", "H3"] }
+    ],
+    "expected_absent": [
+      { "id": "X4", "description": "The expected 23:05 TLS renewal confirmation log line is absent.", "evidence_ids": [], "significance": "The declared normal behavior requires this log line; its absence supports a silent TLS renewal failure.", "related_hypothesis_ids": ["H3"] }
+    ],
+    "unexpected_absent": [
+      { "id": "X5", "description": "Errors did not stop within minutes of the 23:25 rollback, as a deploy-caused failure should have.", "evidence_ids": [], "significance": "The absent rollback effect weakens the deploy hypothesis.", "related_hypothesis_ids": ["H1"] }
+    ]
+  },
+  "anomalies": [
+    { "id": "A1", "description": "The rollback did not change the error rate, while TLS handshake failures and a missing renewal confirmation coincide with the incident.", "matrix_item_ids": ["X2", "X3", "X4", "X5"], "severity": "high", "fully_explained": false, "hypothesis_ids": ["H1", "H2", "H3"] }
+  ],
+  "hypotheses": [
+    {
+      "id": "H1",
+      "statement": "The 23:00 deploy broke the checkout flow.",
+      "origin": "user",
+      "status": "weakened",
+      "confidence": 25,
+      "supported_by": [{ "evidence_id": "E1", "reason": "The deploy preceded the incident, which makes it a candidate but not a demonstrated cause." }],
+      "contradicted_by": [
+        { "evidence_id": "E1", "reason": "The rollback completed at 23:25 but did not reduce errors before they ceased at 23:40." },
+        { "evidence_id": "E3", "reason": "TLS handshake failures identify a competing payment-path mechanism during the same window." }
+      ],
+      "expected_but_absent_ids": ["M2"],
+      "would_be_refuted_by": "A request trace showing checkout failures from an unchanged pre-deploy binary during the incident window.",
+      "killed_by": null,
+      "resurrection_condition": null
+    },
+    {
+      "id": "H2",
+      "statement": "Database overload under evening traffic caused the checkout failures.",
+      "origin": "user",
+      "status": "rejected",
+      "confidence": 5,
+      "supported_by": [],
+      "contradicted_by": [{ "evidence_id": "E2", "reason": "Latency stayed at 22-35ms, below the declared 50ms normal threshold, throughout the incident." }],
+      "expected_but_absent_ids": [],
+      "would_be_refuted_by": "Database telemetry showing stable low latency and no saturation during a comparable checkout-error interval.",
+      "killed_by": "E2",
+      "resurrection_condition": "New database telemetry from the incident window showing latency above 50ms or saturation that invalidates E2."
+    },
+    {
+      "id": "H3",
+      "statement": "A silent failure of the 23:05 TLS certificate renewal caused payment TLS handshakes to fail until the retry sweep restored service.",
+      "origin": "sherlock",
+      "status": "active",
+      "confidence": 80,
+      "supported_by": [
+        { "evidence_id": "E3", "reason": "Payment-provider TLS handshake failures match the failed checkout window and recover at 23:40." },
+        { "evidence_id": "E4", "reason": "The 23:05 renewal job is missing while the 23:38 retry sweep precedes recovery, explaining both the absence and timing." }
+      ],
+      "contradicted_by": [],
+      "expected_but_absent_ids": [],
+      "would_be_refuted_by": "Certificate validity timestamps proving the payment service certificate remained valid throughout 23:10-23:40.",
+      "killed_by": null,
+      "resurrection_condition": null
+    }
+  ],
+  "missing_evidence": [
+    { "id": "M1", "description": "Payment-service certificate validity timestamps for 23:10-23:40.", "criticality": "critical", "impact_if_found": "An expired or invalid certificate favors H3; a valid certificate weakens H3 and reopens H1.", "related_hypothesis_ids": ["H1", "H3"] },
+    { "id": "M2", "description": "Request traces showing whether the deployed checkout binary produced the failing requests after rollback.", "criticality": "useful", "impact_if_found": "Traces tied to the deploy favor H1; traces showing payment TLS failures independent of version favor H3.", "related_hypothesis_ids": ["H1", "H3"] }
+  ],
+  "prime_suspect": {
+    "hypothesis_id": "H3",
+    "justification": "H3 explains the TLS handshake failures, the absent 23:05 renewal confirmation, and recovery after the 23:38 retry sweep; it does not yet have certificate timestamps proving invalidity.",
+    "condemning_datum": "Certificate validity records showing the payment-service certificate was expired or invalid from 23:10 until the retry sweep.",
+    "absolving_datum": "Certificate validity records showing a valid payment-service certificate throughout the incident window."
+  },
+  "coherence": {
+    "score": 82,
+    "explanation": "The TLS renewal failure accounts for the missing expected log, the TLS handshake failures, and recovery after the retry sweep, but certificate timestamps are still needed to close the causal chain."
+  },
+  "open_case_index": {
+    "score": 28,
+    "explanation": "The principal unresolved item is certificate validity during the failure window; deploy-level request traces remain a secondary competing explanation."
+  },
+  "next_test": {
+    "description": "Retrieve payment-service certificate validity timestamps and renewal history covering 23:05-23:40.",
+    "discriminates_between": ["H1", "H3"],
+    "outcome_map": [
+      { "observed_result": "The certificate was expired or invalid until the retry sweep completed.", "favors_hypothesis_id": "H3", "weakens_hypothesis_id": "H1" },
+      { "observed_result": "The certificate remained valid throughout the incident.", "favors_hypothesis_id": "H1", "weakens_hypothesis_id": "H3" }
+    ]
+  },
+  "mirror_question": "If H3 is false, are we ignoring a checkout request-path change that persisted through rollback while merely coinciding with the TLS errors?",
+  "learning": {
+    "is_baseline": true,
+    "summary": "This baseline gives H3 the highest confidence because E3 and the E4 absence align with recovery after the retry sweep; E1 weakens H1 and E2 rejects H2.",
+    "updates": [
+      { "hypothesis_id": "H1", "previous_confidence": null, "new_confidence": 25, "previous_status": null, "new_status": "weakened", "reason": "E1 shows rollback did not remove errors, and E3 supplies a stronger TLS mechanism." },
+      { "hypothesis_id": "H2", "previous_confidence": null, "new_confidence": 5, "previous_status": null, "new_status": "rejected", "reason": "E2 shows normal database latency throughout the incident." },
+      { "hypothesis_id": "H3", "previous_confidence": null, "new_confidence": 80, "previous_status": null, "new_status": "active", "reason": "E3 TLS failures and E4's missing 23:05 renewal entry align with the 23:38 retry sweep and 23:40 recovery." }
+    ]
+  }
+}

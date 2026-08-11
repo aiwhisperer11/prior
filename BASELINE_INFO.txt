@@ -1,0 +1,9 @@
+name: sherlock-core-baseline
+source repository: https://github.com/aiwhisperer11/sherlock-engine
+source branch: main
+source SHA: d1c9f80ae6df0826a8399c6779b5cdc17e63b0be
+source commit date: 2026-07-21T16:14:13Z
+license: Unspecified by GitHub repository API
+export UTC: 2026-07-25T11:19:13Z
+note: Pre-existing Sherlock engine baseline. Exported read-only without Git history, credentials, dependencies, caches, build artifacts, or executable workflows.
+note: This export does not modify or replace the source repository.
