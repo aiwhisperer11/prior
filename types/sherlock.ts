@@ -101,6 +101,7 @@ export interface NextTest {
   description: string;
   discriminates_between: string[];
   outcome_map: NextTestOutcome[];
+  does_not_discriminate_from: string[];
 }
 
 export interface LearningUpdate {
@@ -160,6 +161,7 @@ export interface InvestigationIterationRequest extends InvestigationRequest {
   previous_snapshot?: SherlockInvestigation;
   new_evidence?: EvidenceItem[];
   precedent_leads?: Array<{ caseId: string; caseTitle: string; domain: string; summary: string; isMock: boolean }>;
+  retrieved_evidence_context?: unknown;
 }
 
 // Legacy compatibility for the old ACH UI. Remove in the UI migration.

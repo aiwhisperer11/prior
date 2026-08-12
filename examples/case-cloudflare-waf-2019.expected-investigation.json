@@ -1,0 +1,391 @@
+{
+  "schema_version": "1.0.0",
+  "meta": {
+    "case_id": "case-cloudflare-waf-2019",
+    "case_title": "Cloudflare global outage, 2 July 2019, 13:42-14:09 UTC",
+    "iteration": 1,
+    "domain": "Internet infrastructure incident"
+  },
+  "case": {
+    "observed_outcome": "Cloudflare's edge network returned HTTP 502 errors for HTTP and HTTPS traffic globally from 13:42 to 14:09 UTC on 2 July 2019 (27 minutes), with CPU utilization on machines handling HTTP/HTTPS traffic reaching close to 100%. Core proxying, CDN, and WAF functionality were unavailable for customers worldwide during this window.",
+    "expected_behavior": "WAF rule changes are deployed globally within seconds via Cloudflare's Quicksilver config-distribution system; this is by design and bypasses the normal staged DOG/PIG/Canary rollout used for other software releases, because the WAF must respond rapidly to emerging threats. In exchange, the WAF release pipeline is expected to test each rule for runaway CPU utilization before it reaches production, and Cloudflare's edge software is expected to enforce a CPU-usage limit on any single regular expression evaluated against a request, so that one rule cannot consume unbounded CPU on a machine.",
+    "evidence": [
+      {
+        "id": "E1",
+        "label": "Pull request log",
+        "content": "A pull request introducing a new WAF rule, intended to add a JavaScript-detection capability, was merged at 13:31 UTC on 2 July 2019. The rule's regex included the pattern .*(?:.*=.*) inside a larger expression, which is vulnerable to catastrophic backtracking against certain inputs.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E2",
+        "label": "CI build log (TeamCity)",
+        "content": "TeamCity built the updated WAF ruleset and ran the existing test suite at 13:37 UTC, and the change passed. The test suite did not include a check for runaway CPU utilization by a WAF rule.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E3",
+        "label": "Quicksilver deployment log",
+        "content": "The new ruleset began deploying automatically and globally at 13:42 UTC via Quicksilver, Cloudflare's config-distribution system, which propagates a change to every edge machine worldwide with a p99 latency of about 2.29 seconds.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E4",
+        "label": "PagerDuty alert log",
+        "content": "The first PagerDuty alert fired at 13:45 UTC. It was a synthetic test of WAF functionality failing, not a CPU-utilization alert.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E5",
+        "label": "Incident response chat log",
+        "content": "In the initial minutes of the incident, responders speculated that the global 502 errors resembled a large-scale attack of a type not seen before.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E6",
+        "label": "Performance team CPU profiling",
+        "content": "At 14:00 UTC, the Performance Team pulled live CPU data from an affected edge machine. The data clearly showed the WAF module consuming the CPU, not an external traffic surge; the attack theory was dismissed at this point.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E7",
+        "label": "Incident response chat log",
+        "content": "At 14:02 UTC, responders proposed terminating the WAF globally to stop the CPU exhaustion, since a targeted rollback of only the new rule was judged too slow: the standard rollback path required rebuilding the complete WAF ruleset, which the team reported would take too long during an active global outage.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E8",
+        "label": "Quicksilver deployment log",
+        "content": "Global WAF termination was executed at 14:07 UTC.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E9",
+        "label": "Traffic and CPU monitoring",
+        "content": "Traffic levels and CPU utilization on edge machines returned to normal by 14:09 UTC, 27 minutes after the automatic deployment began at 13:42 UTC. The WAF was re-enabled globally at 14:52 UTC after the rule was fixed and retested.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E10",
+        "label": "Post-incident engineering review",
+        "content": "The post-incident review found that a protection mechanism intended to limit excessive CPU usage by a single regular expression had been removed by mistake during a refactoring of the WAF completed weeks before 2 July 2019.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E11",
+        "label": "Post-incident engineering review",
+        "content": "The same review found the WAF's release test suite did not test for runaway CPU utilization; it validated rule correctness but not CPU behavior under adversarial input.",
+        "provided_in_iteration": 1
+      }
+    ]
+  },
+  "expectation_matrix": {
+    "expected_present": [
+      {
+        "id": "X1",
+        "description": "TeamCity built and tested the new WAF rule before deployment, as required for every rule change.",
+        "evidence_ids": [
+          "E2"
+        ],
+        "significance": "Normal pre-deploy testing occurred, which narrows the failure to what that testing did not cover rather than to a skipped process step.",
+        "related_hypothesis_ids": [
+          "H2",
+          "H3"
+        ]
+      }
+    ],
+    "unexpected_present": [
+      {
+        "id": "X2",
+        "description": "CPU utilization on edge machines handling HTTP/HTTPS traffic reached close to 100% globally within minutes of a routine rule deployment.",
+        "evidence_ids": [
+          "E3",
+          "E6"
+        ],
+        "significance": "This is the core anomaly requiring explanation.",
+        "related_hypothesis_ids": [
+          "H1",
+          "H2",
+          "H3"
+        ]
+      },
+      {
+        "id": "X3",
+        "description": "The rule change propagated to every edge machine worldwide via Quicksilver within seconds, so a single bad rule affected the whole network almost simultaneously.",
+        "evidence_ids": [
+          "E3"
+        ],
+        "significance": "Explains why the failure was instantly global rather than gradual, which distinguishes a code-level cause from an external attack that would typically ramp up.",
+        "related_hypothesis_ids": [
+          "H1",
+          "H2"
+        ]
+      }
+    ],
+    "expected_absent": [
+      {
+        "id": "X4",
+        "description": "A CPU-usage protection meant to cap the CPU consumed by any single regular expression evaluation did not limit this rule's CPU usage, even though such a protection is expected to exist.",
+        "evidence_ids": [
+          "E10"
+        ],
+        "significance": "The highest-value absence: the safeguard that should have stopped a pathological regex from consuming unbounded CPU was not present at deployment time, directly explaining why the outage was global and severe rather than contained to one machine.",
+        "related_hypothesis_ids": [
+          "H2",
+          "H3"
+        ]
+      },
+      {
+        "id": "X5",
+        "description": "The release pipeline's test suite did not test the new rule for runaway CPU utilization, even though the pipeline is expected to test each rule for exactly this before production.",
+        "evidence_ids": [
+          "E2",
+          "E11"
+        ],
+        "significance": "A second independent safeguard that should have caught this rule also did not run, which is why the failure reached production at all.",
+        "related_hypothesis_ids": [
+          "H2",
+          "H3"
+        ]
+      }
+    ],
+    "unexpected_absent": [
+      {
+        "id": "X6",
+        "description": "If this were an external attack, an attacker-controlled or anomalous inbound traffic pattern should have been visible; instead, the CPU data pulled at 14:00 UTC shows CPU consumption localized to WAF rule evaluation, not to inbound traffic volume or pattern.",
+        "evidence_ids": [
+          "E6"
+        ],
+        "significance": "This is the discriminating absence that kills the attack hypothesis: an attack predicts anomalous traffic, and none was found.",
+        "related_hypothesis_ids": [
+          "H1"
+        ]
+      }
+    ]
+  },
+  "anomalies": [
+    {
+      "id": "A1",
+      "description": "CPU utilization spiked to near 100% and HTTP/HTTPS service became unavailable globally within minutes of a routine WAF rule deployment, even though the deployed rule had passed the existing test suite.",
+      "matrix_item_ids": [
+        "X1",
+        "X2",
+        "X3"
+      ],
+      "severity": "high",
+      "fully_explained": true,
+      "hypothesis_ids": [
+        "H1",
+        "H2",
+        "H3"
+      ]
+    },
+    {
+      "id": "A2",
+      "description": "The CPU-usage protection expected to cap runaway regex CPU consumption was absent, and the test suite gap that should have caught this rule was also absent; together these two missing safeguards let a single pathological rule reach production and run uncorrected.",
+      "matrix_item_ids": [
+        "X4",
+        "X5"
+      ],
+      "severity": "high",
+      "fully_explained": true,
+      "hypothesis_ids": [
+        "H2",
+        "H3"
+      ]
+    },
+    {
+      "id": "A3",
+      "description": "Responders initially suspected a large-scale attack, matching the sudden global onset, but no anomalous traffic pattern was found: CPU consumption was localized to WAF rule evaluation, not inbound traffic.",
+      "matrix_item_ids": [
+        "X6"
+      ],
+      "severity": "medium",
+      "fully_explained": true,
+      "hypothesis_ids": [
+        "H1"
+      ]
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "H2",
+      "statement": "A catastrophic-backtracking regex in the WAF rule merged at 13:31 UTC drove CPU to near 100%, and this occurred because the CPU-usage protection that would normally limit any single regex's CPU consumption had been removed by mistake in a prior refactor.",
+      "origin": "sherlock",
+      "status": "active",
+      "confidence": 82,
+      "supported_by": [
+        {
+          "evidence_id": "E1",
+          "reason": "E1 identifies the specific catastrophic-backtracking pattern in the merged rule as the mechanism capable of driving CPU to near 100%."
+        },
+        {
+          "evidence_id": "E3",
+          "reason": "E3 supports H2 because Quicksilver's second-scale global propagation explains why the CPU spike was instantaneous and worldwide rather than localized or gradual."
+        },
+        {
+          "evidence_id": "E10",
+          "reason": "E10 supports H2 because the runtime safeguard that would normally have capped this regex's CPU usage was documented absent at deployment time."
+        }
+      ],
+      "contradicted_by": [],
+      "expected_but_absent_ids": [],
+      "would_be_refuted_by": "A reproduction showing the regex evaluates in bounded time against realistic production inputs, meaning the CPU exhaustion did not originate from this rule.",
+      "killed_by": null,
+      "resurrection_condition": null
+    },
+    {
+      "id": "H3",
+      "statement": "The release pipeline's failure to test for runaway CPU utilization, independent of the removed runtime protection, was the primary enabling gap: adequate CPU-load testing before deployment would have caught this rule regardless of the missing runtime safeguard.",
+      "origin": "sherlock",
+      "status": "active",
+      "confidence": 40,
+      "supported_by": [
+        {
+          "evidence_id": "E2",
+          "reason": "E2 supports H3 because the existing test suite passed the rule without ever evaluating its CPU behavior, so the gap in testing is a documented, independent enabling condition."
+        },
+        {
+          "evidence_id": "E11",
+          "reason": "E11 directly states the release test suite validated rule correctness but not CPU behavior under adversarial input."
+        }
+      ],
+      "contradicted_by": [
+        {
+          "evidence_id": "E10",
+          "reason": "E10 weakens H3 relative to H2 because the removed runtime protection is the safeguard that would have applied at execution time regardless of test coverage, making it the more proximate cause pending M1."
+        }
+      ],
+      "expected_but_absent_ids": [
+        "M1"
+      ],
+      "would_be_refuted_by": "A controlled reproduction showing the reinstated runtime CPU-usage protection alone halts the pathological regex regardless of test coverage, which would make H3 unnecessary to explain the incident.",
+      "killed_by": null,
+      "resurrection_condition": null
+    },
+    {
+      "id": "H1",
+      "statement": "It was a large-scale attack of a type we hadn't seen before",
+      "origin": "user",
+      "status": "rejected",
+      "confidence": 3,
+      "supported_by": [
+        {
+          "evidence_id": "E5",
+          "reason": "E5 made H1 a candidate because the sudden global onset of the outage matched what responders expected a novel large-scale attack to look like."
+        }
+      ],
+      "contradicted_by": [
+        {
+          "evidence_id": "E6",
+          "reason": "E6 kills H1 because the CPU data pulled at 14:00 UTC shows CPU consumption localized to WAF rule evaluation, not to anomalous or elevated inbound traffic, which an attack would have produced."
+        }
+      ],
+      "expected_but_absent_ids": [
+        "M3"
+      ],
+      "would_be_refuted_by": "Traffic logs showing attacker-controlled or anomalous inbound request patterns during 13:42-14:09 UTC, independent of WAF rule CPU consumption.",
+      "killed_by": "E6",
+      "resurrection_condition": "Revive only if traffic telemetry later shows attacker-controlled request patterns coincident with, and independent of, the WAF rule's CPU consumption."
+    }
+  ],
+  "missing_evidence": [
+    {
+      "id": "M1",
+      "description": "A controlled reproduction of the pathological regex against both a reinstated CPU-usage protection and a dedicated CPU-load test, to determine which safeguard would independently have prevented deployment or halted execution.",
+      "criticality": "critical",
+      "impact_if_found": "If the runtime protection alone halts the regex regardless of test coverage, H2 is confirmed as primary and H3 is superseded. If only dedicated CPU-load testing catches it pre-deployment, H3 gains substantially over H2.",
+      "related_hypothesis_ids": [
+        "H2",
+        "H3"
+      ]
+    },
+    {
+      "id": "M2",
+      "description": "Per-machine CPU and request-rate telemetry for 13:42-14:00 UTC broken out by WAF rule id, to confirm the rule merged at 13:31 UTC (not some other concurrently deployed rule) was the exclusive CPU consumer.",
+      "criticality": "useful",
+      "impact_if_found": "Would further isolate this specific rule from any other simultaneous change, strengthening H2 and H3 if confirmed exclusive.",
+      "related_hypothesis_ids": [
+        "H2"
+      ]
+    },
+    {
+      "id": "M3",
+      "description": "Confirmation of whether any customer-visible traffic anomaly (packet floods, unusual source distribution) was observed in edge network telemetry during 13:42-14:09 UTC, beyond the CPU-only data already pulled.",
+      "criticality": "noise",
+      "impact_if_found": "Would close out the last residual possibility that an external event coincided with the deployment, though E6 already strongly weighs against it.",
+      "related_hypothesis_ids": [
+        "H1"
+      ]
+    }
+  ],
+  "prime_suspect": {
+    "hypothesis_id": "H2",
+    "justification": "H2 explains A1's CPU spike and instantaneous global onset via Quicksilver's second-scale propagation, and explains A2's twin absences (missing runtime protection, missing CPU-load test) as what allowed one pathological rule to go uncorrected. H1 is ruled out by A3: the CPU data pulled at 14:00 UTC shows no anomalous traffic pattern, only WAF-rule CPU consumption. H3 explains the same absences but frames the test-suite gap as primary; H2 leads because the removed runtime protection is the safeguard that would have applied at execution time regardless of test coverage, though M1 has not yet confirmed the relative necessity of each safeguard.",
+    "condemning_datum": "A reproduction showing the specific regex causes catastrophic backtracking against inputs matching production traffic, consuming CPU until externally terminated.",
+    "absolving_datum": "A reproduction showing the regex evaluates in bounded time against realistic production inputs, meaning CPU exhaustion originated elsewhere."
+  },
+  "coherence": {
+    "score": 82,
+    "explanation": "H2 accounts for the CPU spike (A1), the twin absent safeguards (A2), and the ruled-out attack theory (A3) using only the supplied evidence. It is not fully complete because M1's controlled reproduction distinguishing the relative necessity of the two missing safeguards (runtime protection vs. test coverage) has not been run."
+  },
+  "open_case_index": {
+    "score": 22,
+    "explanation": "A1 and A3 are fully explained by H2 and the CPU-profiling evidence. A2 remains open only insofar as M1 has not established whether the missing runtime protection alone, or the missing test alone, would have been sufficient — both absences are documented but their relative necessity is not."
+  },
+  "next_test": {
+    "description": "Determine whether re-introducing only the CPU-usage protection (without adding CPU-load testing to the release pipeline) would have been sufficient to prevent this class of incident, versus whether adding CPU-load testing alone (without the runtime protection) would have caught it before deployment.",
+    "discriminates_between": [
+      "H2",
+      "H3"
+    ],
+    "outcome_map": [
+      {
+        "observed_result": "A controlled test shows the reinstated CPU-usage protection alone halts a pathological regex at runtime regardless of test coverage.",
+        "favors_hypothesis_id": "H2",
+        "weakens_hypothesis_id": "H3"
+      },
+      {
+        "observed_result": "A controlled test shows the pathological regex passes runtime protection checks but is caught only by dedicated CPU-load testing before deployment.",
+        "favors_hypothesis_id": "H3",
+        "weakens_hypothesis_id": "H2"
+      },
+      {
+        "observed_result": "Neither safeguard alone is sufficient without the other.",
+        "favors_hypothesis_id": null,
+        "weakens_hypothesis_id": null
+      }
+    ],
+    "does_not_discriminate_from": []
+  },
+  "mirror_question": "If in a week H2 were shown false, the clue we are probably underweighting is that the test-suite gap (E11) alone might have been sufficient to catch this regardless of the missing runtime protection — H2 has been treated as primary because the postmortem foregrounds the removed protection, not because M1 has confirmed it was the necessary safeguard.",
+  "learning": {
+    "is_baseline": true,
+    "summary": "Baseline confidences are set directly from the supplied evidence. H2 leads because the CPU spike is global and instantaneous, consistent with Quicksilver's second-scale propagation of a single bad rule, and because both expected safeguards (E10's protection, E11's test coverage) are documented absent. H1 is rejected because E6's CPU profiling shows no attacker-pattern traffic, only WAF-rule CPU consumption, directly contradicting what an attack would produce. H3 remains active but weaker than H2 because the removed runtime protection is the safeguard that operates regardless of test coverage, so it is treated as the more proximate cause pending M1.",
+    "updates": [
+      {
+        "hypothesis_id": "H2",
+        "previous_confidence": null,
+        "new_confidence": 82,
+        "previous_status": null,
+        "new_status": "active",
+        "reason": "Baseline: E1's regex, E3's Quicksilver propagation, and E10's and E11's twin absences align with the timing and scale of the CPU spike."
+      },
+      {
+        "hypothesis_id": "H3",
+        "previous_confidence": null,
+        "new_confidence": 40,
+        "previous_status": null,
+        "new_status": "active",
+        "reason": "Baseline: E2 and E11 support a test-coverage framing, but E10 makes the removed runtime protection the more proximate safeguard, capping confidence below H2."
+      },
+      {
+        "hypothesis_id": "H1",
+        "previous_confidence": null,
+        "new_confidence": 3,
+        "previous_status": null,
+        "new_status": "rejected",
+        "reason": "Baseline: E6 directly kills the attack theory: CPU consumption is localized to WAF rule evaluation, not attacker traffic."
+      }
+    ]
+  }
+}

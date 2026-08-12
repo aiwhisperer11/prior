@@ -5,13 +5,20 @@ import { useState, type FormEvent } from "react";
 import caseBInput from "@/examples/case-b.json";
 import baselineSnapshot from "@/examples/case-b-baseline-snapshot.json";
 import iteration2Snapshot from "@/examples/case-b-iteration2-snapshot.json";
+import gbpRubCase from "@/examples/gbp-rub-june-2023.json";
+import cloudflareWafCase from "@/examples/case-cloudflare-waf-2019.json";
 import { parseSherlockInvestigation } from "@/lib/investigation-validation";
 import { parseInvestigationApiResponse } from "@/lib/investigation-response";
 import type { InvestigationRequest, SherlockInvestigation } from "@/types/sherlock";
+import type { EvidenceScoutResult } from "@/types/evidence-scout";
+import type { ActiveRequestMode } from "@/lib/investigation-view-state";
 
 interface SherlockFormProps {
   onSnapshot: (snapshot: SherlockInvestigation) => void;
   onSnapshotsLoaded: (snapshots: SherlockInvestigation[]) => void;
+  onScout: (scout: EvidenceScoutResult) => void;
+  onStart: (mode: ActiveRequestMode) => void;
+  investigating: boolean;
 }
 
 interface FormEvidence {
@@ -47,7 +54,7 @@ function apiErrorFromResponse(status: number, body: unknown): ApiError {
   return { status, message: `Request failed with status ${status}`, validationErrors: [] };
 }
 
-export default function SherlockForm({ onSnapshot, onSnapshotsLoaded }: SherlockFormProps) {
+export default function SherlockForm({ onSnapshot, onSnapshotsLoaded, onScout, onStart, investigating }: SherlockFormProps) {
   const [caseId, setCaseId] = useState("case-ui");
   const [caseTitle, setCaseTitle] = useState("Untitled investigation");
   const [domain, setDomain] = useState("General investigation");
@@ -79,6 +86,18 @@ export default function SherlockForm({ onSnapshot, onSnapshotsLoaded }: Sherlock
     setError(null);
   }
 
+  function loadCloudflareWafExample() {
+    setCaseId(cloudflareWafCase.case_id);
+    setCaseTitle(cloudflareWafCase.case_title);
+    setDomain(cloudflareWafCase.domain);
+    setObservedOutcome(cloudflareWafCase.observed_outcome);
+    setExpectedBehavior(cloudflareWafCase.expected_behavior);
+    setEvidence(cloudflareWafCase.evidence.map(({ label, content }) => ({ label, content })));
+    setUserHypotheses(cloudflareWafCase.user_hypotheses ?? []);
+    setError(null);
+  }
+  async function startGbpRub() { setLoading(true); onStart("evidence_scout"); try { const response = await fetch("/api/investigate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(gbpRubCase) }); const body: unknown = await response.json(); const parsed = parseInvestigationApiResponse(body); if (parsed.ok) { if (parsed.response.evidence_scout) onScout(parsed.response.evidence_scout); onSnapshot(parsed.response.investigation); } else setError({ status: response.status, message: "Evidence Scout request failed.", validationErrors: parsed.errors.map((error) => error.message) }); } finally { setLoading(false); } }
+
   function loadOfflineSnapshots(includeIteration2: boolean) {
     const parsed = parseSherlockInvestigation(baselineSnapshot);
     const parsedIteration2 = parseSherlockInvestigation(iteration2Snapshot);
@@ -101,6 +120,7 @@ export default function SherlockForm({ onSnapshot, onSnapshotsLoaded }: Sherlock
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    onStart("baseline");
     setLoading(true);
     setError(null);
 
@@ -164,6 +184,8 @@ export default function SherlockForm({ onSnapshot, onSnapshotsLoaded }: Sherlock
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={loadExample} className="rounded border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">Load example</button>
+          <button type="button" onClick={loadCloudflareWafExample} className="rounded border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">Load Cloudflare WAF example</button>
+          <button type="button" disabled={loading || investigating} onClick={startGbpRub} className="rounded border border-violet-400 px-3 py-2 text-sm">Investigate GBP/RUB fixture</button>
           <div>
             <p className="text-sm font-medium">Example case</p>
             <div className="mt-1 flex flex-wrap gap-2">

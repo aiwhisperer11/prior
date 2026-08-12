@@ -392,7 +392,8 @@
         "observed_result": "The deployment diff or relevant configuration history is unavailable for the interval.",
         "weakens_hypothesis_id": null
       }
-    ]
+    ],
+    "does_not_discriminate_from": []
   },
   "open_case_index": {
     "explanation": "The previously central anomalies are substantially explained: X4 and X7 establish the failed local renewal and expired certificate, X3 establishes the matching TLS failures, and E5 establishes valid replacement before successful recovery. The remaining open issue is upstream causation: no supplied evidence determines whether the renewal-path failure was independent or introduced by the 23:00 deploy. Database overload and an independent provider incident are rejected by E2 and E5.",

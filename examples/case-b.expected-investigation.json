@@ -105,7 +105,8 @@
     "outcome_map": [
       { "observed_result": "The certificate was expired or invalid until the retry sweep completed.", "favors_hypothesis_id": "H3", "weakens_hypothesis_id": "H1" },
       { "observed_result": "The certificate remained valid throughout the incident.", "favors_hypothesis_id": "H1", "weakens_hypothesis_id": "H3" }
-    ]
+    ],
+    "does_not_discriminate_from": []
   },
   "mirror_question": "If H3 is false, are we ignoring a checkout request-path change that persisted through rollback while merely coinciding with the TLS errors?",
   "learning": {
