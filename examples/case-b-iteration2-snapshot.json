@@ -392,7 +392,8 @@
         "observed_result": "The deployment diff or relevant configuration history is unavailable for the interval.",
         "weakens_hypothesis_id": null
       }
-    ]
+    ],
+    "does_not_discriminate_from": []
   },
   "open_case_index": {
     "explanation": "The previously central anomalies are substantially explained: X4 and X7 establish the failed local renewal and expired certificate, X3 establishes the matching TLS failures, and E5 establishes valid replacement before successful recovery. The remaining open issue is upstream causation: no supplied evidence determines whether the renewal-path failure was independent or introduced by the 23:00 deploy. Database overload and an independent provider incident are rejected by E2 and E5.",
@@ -404,5 +405,7 @@
     "hypothesis_id": "H3",
     "justification": "H3 explains A1 through the absent renewal confirmation, expired certificate, TLS failures, valid retry-sweep replacement, and subsequent successful handshake. It also explains A2's rollback ineffectiveness and remains compatible with A3's normal database latency. H1 does not explain why rollback failed to reduce errors and has only temporal support; H4 is contradicted by E5's absence of a provider incident. H3 remains limited by the unobserved reason the 23:05 renewal path failed."
   },
-  "schema_version": "1.0.0"
+  "schema_version": "1.0.0",
+  "root_cause_status": "determined",
+  "undetermined_explanation": null
 }

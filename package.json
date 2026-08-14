@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --test --import tsx tests/*.test.ts",
-    "eval:case-b": "tsx scripts/eval-case-b.ts"
+    "eval:case-b": "tsx scripts/eval-case-b.ts",
+    "eval:case-cloudflare": "tsx scripts/eval-case-cloudflare.ts",
+    "eval:case-google-secops": "tsx scripts/eval-case-google-secops.ts"
   },
   "dependencies": {
     "ajv": "^8.18.0",

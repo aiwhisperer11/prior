@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -11,12 +12,19 @@ import type { InvestigationRequest } from "../types/sherlock";
 const fixturePath = resolve(process.cwd(), "examples/case-b.json");
 const artifactPath = resolve(process.cwd(), ".sherlock/case-b-live-result.json");
 
+/** Next.js loads .env.local automatically; a standalone tsx script must load it itself. */
+function loadEnvLocal(): void {
+  const envPath = resolve(process.cwd(), ".env.local");
+  if (!process.env.OPENAI_API_KEY && existsSync(envPath)) process.loadEnvFile(envPath);
+}
+
 async function writeRawResult(rawResponse: string): Promise<void> {
   await mkdir(dirname(artifactPath), { recursive: true });
   await writeFile(artifactPath, rawResponse, "utf8");
 }
 
 async function main(): Promise<void> {
+  loadEnvLocal();
   if (!process.env.OPENAI_API_KEY) {
     console.error("OPENAI_API_KEY is required to evaluate Case B.");
     process.exitCode = 1;

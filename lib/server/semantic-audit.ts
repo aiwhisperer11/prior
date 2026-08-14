@@ -1,0 +1,14 @@
+import type { SherlockInvestigationV2 } from "@/types/sherlock-v2";
+import { auditCausalChain, firstProblematicCausalStep } from "@/lib/server/causal-chain";
+export function auditSherlockV2(value: SherlockInvestigationV2): string[] {
+  const issues: string[] = [];
+  if (!value.original_question.trim() || !value.observed_phenomenon.trim()) issues.push("original_question and observed_phenomenon are required");
+  for (const hypothesis of value.causal_hypotheses) { if (!hypothesis.mechanism.trim() || /cannot be determined|insufficient evidence/i.test(hypothesis.causal_claim)) issues.push(`${hypothesis.id}: causal mechanism is invalid`); if (!hypothesis.falsifier.trim() || !hypothesis.next_discriminating_test.trim() || !hypothesis.impact_if_found.trim()) issues.push(`${hypothesis.id}: falsifier/test/impact is required`); const first = firstProblematicCausalStep(hypothesis.causal_chain); if ((first?.step_id ?? null) !== hypothesis.first_problematic_step_id) issues.push(`${hypothesis.id}: first problematic causal step is inconsistent`); issues.push(...auditCausalChain(hypothesis.causal_chain).map((issue) => `${hypothesis.id}: ${issue}`)); }
+  const predictions = new Map(value.predictions.map((prediction) => [prediction.id, prediction]));
+  for (const prediction of value.predictions) { if (prediction.observation_status === "expected_but_absent" && (!prediction.detection_opportunity.trim() || !prediction.detection_coverage.trim() || !prediction.actual_observation)) issues.push(`${prediction.id}: absence lacks detection opportunity, coverage, or same-variable actual observation`); }
+  for (const link of value.evidence_links) { if (!predictions.has(link.prediction_id) || !link.explanation.trim()) issues.push(`${link.evidence_id}: invalid evidence link`); }
+  if (value.leading_hypothesis !== null && !value.causal_hypotheses.some((hypothesis) => hypothesis.id === value.leading_hypothesis && hypothesis.assessment === "supported")) issues.push("leading hypothesis requires supported discriminating evidence");
+  if (value.epistemic_status === "insufficient_evidence" && value.leading_hypothesis !== null) issues.push("insufficient evidence cannot have a leading hypothesis");
+  return issues;
+}
+export async function repairThenAudit(candidate: SherlockInvestigationV2, repair: (issues: string[]) => Promise<SherlockInvestigationV2>, maxAttempts = 1): Promise<SherlockInvestigationV2> { let current = candidate; for (let attempt = 0; attempt <= maxAttempts; attempt += 1) { const issues = auditSherlockV2(current); if (!issues.length) return { ...current, semantic_audit: { passed: true, issues: [], repair_attempts: attempt } }; if (attempt === maxAttempts) return { ...current, epistemic_status: "insufficient_evidence", leading_hypothesis: null, semantic_audit: { passed: false, issues, repair_attempts: attempt } }; current = await repair(issues); } return current; }

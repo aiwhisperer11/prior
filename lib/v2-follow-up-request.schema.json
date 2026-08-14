@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["parent_snapshot_id", "new_evidence"],
+  "properties": {
+    "parent_snapshot_id": { "type": "string", "minLength": 1 },
+    "new_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "source_type",
+          "locator",
+          "publisher",
+          "fragment",
+          "event_timestamp",
+          "recorded_at",
+          "retrieval_time",
+          "content_hash",
+          "observation_capability",
+          "entity",
+          "variable",
+          "observed_value",
+          "units",
+          "quality",
+          "limitations",
+          "kind"
+        ],
+        "properties": {
+          "source_id": { "type": "string", "minLength": 1 },
+          "source_type": { "type": "string", "minLength": 1 },
+          "locator": { "type": "string", "minLength": 1 },
+          "publisher": { "type": "string", "minLength": 1 },
+          "fragment": { "type": "string", "minLength": 1 },
+          "event_timestamp": { "type": ["string", "null"] },
+          "recorded_at": { "type": "string", "minLength": 1 },
+          "retrieval_time": { "type": "string", "minLength": 1 },
+          "content_hash": { "type": "string", "minLength": 1 },
+          "observation_capability": { "type": "string" },
+          "chain_of_custody": { "type": "string" },
+          "entity": { "type": "string", "minLength": 1 },
+          "variable": { "type": "string", "minLength": 1 },
+          "observed_value": { "type": "string" },
+          "units": { "type": ["string", "null"] },
+          "quality": { "type": "string" },
+          "limitations": { "type": "string" },
+          "kind": { "enum": ["observed", "declared", "inferred"] }
+        }
+      }
+    }
+  }
+}

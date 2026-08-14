@@ -1,0 +1,5 @@
+{
+  "request_mode": "evidence_scout", "case_id": "gbp-rub-june-2023", "case_title": "GBP/RUB movement, 23–27 June 2023", "domain": "FX market observation",
+  "observed_outcome": "GBP/RUB showed an unusually wide move during 23–27 June 2023.",
+  "expected_behavior": "Official reference-rate observations should be available for each published business day; explanations require corroborated evidence, not retrieval metadata."
+}

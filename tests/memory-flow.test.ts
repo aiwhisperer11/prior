@@ -12,7 +12,7 @@ function fixture<T>(path: string): T { return JSON.parse(readFileSync(new URL(pa
 test("E2E flow retrieves a mock precedent as a lead, investigates, and persists the snapshot", async () => {
   const saved: StoredInvestigation[] = [];
   const store: InvestigationMemoryStore = {
-    findPrecedents: async (): Promise<PrecedentLead[]> => [{ caseId: "prior-case", caseTitle: "Prior incident", domain: "IT incident", summary: "A similar certificate symptom.", isMock: true }],
+    findPrecedents: async (): Promise<PrecedentLead[]> => [{ caseId: "prior-case", investigationId: "prior-investigation", snapshotId: "prior-snapshot", sourceId: "prior-source", caseTitle: "Prior incident", domain: "IT incident", summary: "A similar certificate symptom.", isMock: true }],
     save: async (record) => { saved.push(record); },
   };
   const request: InvestigationIterationRequest = { ...fixture<InvestigationIterationRequest>("../examples/case-b.json"), iteration: 1 };
@@ -30,17 +30,39 @@ test("E2E flow retrieves a mock precedent as a lead, investigates, and persists 
   assert.equal(saved[0]?.isMock, true);
 });
 
+test("full flow never returns the current case as an external precedent", async () => {
+  const request: InvestigationIterationRequest = { ...fixture<InvestigationIterationRequest>("../examples/case-b.json"), iteration: 1 };
+  const response = fixture<SherlockInvestigation>("../examples/case-b.expected-investigation.json");
+  const store = {
+    findPrecedents: async (): Promise<PrecedentLead[]> => [],
+    findSemanticPrecedents: async (): Promise<PrecedentLead[]> => [{ caseId: request.case_id, caseTitle: "stale self", domain: request.domain, summary: "serialized self", isMock: true }],
+    findLatestForCase: async () => null,
+    save: async (): Promise<void> => {},
+  };
+  let received: InvestigationIterationRequest | undefined;
+  const result = await runInvestigationFlow(request, store, async (input) => {
+    received = input as InvestigationIterationRequest;
+    return { ok: true, investigation: response, rawResponses: [] };
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.precedents, []);
+  assert.deepEqual(received?.precedent_leads, []);
+});
+
+const fakeEmbedder = async (text: string) => ({ vector: Array.from({ length: 4 }, (_, i) => text.length + i), model: "fake-embedder" });
+
 test("CockroachDBMemoryStore uses parameterized queries and persists the snapshot", async () => {
   const calls: Array<{ sql: string; values: unknown[] }> = [];
   const pool = { query: async (sql: string, values: unknown[]) => { calls.push({ sql, values }); return { rows: [] }; } };
-  const store = new CockroachDBMemoryStore(pool as never);
+  const store = new CockroachDBMemoryStore(pool as never, fakeEmbedder);
   const investigation = fixture<SherlockInvestigation>("../examples/case-b.expected-investigation.json");
   await store.findPrecedents("IT incident", "case-b-checkout");
   await store.save({ investigation, isMock: false });
   assert.match(calls[0]!.sql, /case_id <> \$2/);
   assert.deepEqual(calls[0]!.values, ["IT incident", "case-b-checkout"]);
-  assert.match(calls[1]!.sql, /INSERT INTO investigation_memory/);
-  assert.equal(calls[1]!.values[4], false);
+  assert.match(calls[1]!.sql, /WHERE case_id = \$1/);
+  assert.match(calls[2]!.sql, /INSERT INTO investigation_memory/);
+  assert.equal(calls[2]!.values[4], false);
 });
 
 test("Cockroach configuration requires verified TLS from DATABASE_URL", () => {

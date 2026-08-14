@@ -86,6 +86,8 @@ export interface PrimeSuspect {
   absolving_datum: string;
 }
 
+export type RootCauseStatus = "determined" | "undetermined";
+
 export interface ExplainedScore {
   score: number;
   explanation: string;
@@ -101,6 +103,7 @@ export interface NextTest {
   description: string;
   discriminates_between: string[];
   outcome_map: NextTestOutcome[];
+  does_not_discriminate_from: string[];
 }
 
 export interface LearningUpdate {
@@ -126,7 +129,9 @@ export interface SherlockInvestigation {
   anomalies: Anomaly[];
   hypotheses: SherlockHypothesis[];
   missing_evidence: MissingEvidence[];
-  prime_suspect: PrimeSuspect;
+  root_cause_status: RootCauseStatus;
+  undetermined_explanation: string | null;
+  prime_suspect: PrimeSuspect | null;
   coherence: ExplainedScore;
   open_case_index: ExplainedScore;
   next_test: NextTest;
@@ -160,6 +165,7 @@ export interface InvestigationIterationRequest extends InvestigationRequest {
   previous_snapshot?: SherlockInvestigation;
   new_evidence?: EvidenceItem[];
   precedent_leads?: Array<{ caseId: string; caseTitle: string; domain: string; summary: string; isMock: boolean }>;
+  retrieved_evidence_context?: unknown;
 }
 
 // Legacy compatibility for the old ACH UI. Remove in the UI migration.

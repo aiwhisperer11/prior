@@ -1,7 +1,8 @@
-import type { SherlockHypothesis } from "@/types/sherlock";
+import type { EvidenceItem, SherlockHypothesis } from "@/types/sherlock";
 
 interface HypothesisCardProps {
   hypothesis: SherlockHypothesis;
+  evidenceById: Map<string, EvidenceItem>;
 }
 
 const statusStyle: Record<SherlockHypothesis["status"], string> = {
@@ -25,12 +26,12 @@ const cardStyle: Record<SherlockHypothesis["status"], string> = {
   revived: "border-sky-200 bg-sky-50/40 dark:border-sky-900 dark:bg-sky-950/10",
 };
 
-export default function HypothesisCard({ hypothesis }: HypothesisCardProps) {
+export default function HypothesisCard({ hypothesis, evidenceById }: HypothesisCardProps) {
   return (
     <article className={`rounded-lg border p-4 ${cardStyle[hypothesis.status]}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs text-zinc-500">{hypothesis.id} · {hypothesis.origin}</p>
+          <p className="text-xs text-zinc-500">{hypothesis.id} · {hypothesis.origin === "user" ? "seed hypothesis" : "engine-generated hypothesis"}</p>
           <h3 className="mt-1 font-semibold">{hypothesis.statement}</h3>
         </div>
         <div className="text-right">
@@ -40,31 +41,32 @@ export default function HypothesisCard({ hypothesis }: HypothesisCardProps) {
               {hypothesis.status}
             </span>
           </div>
-          <p className="mt-1 text-xs text-zinc-500">confidence</p>
+          <p className="mt-1 text-xs text-zinc-500">investigative support score</p>
         </div>
       </div>
 
-      <details className="mt-4 text-sm">
+      <p className="mt-2 text-xs text-zinc-500">A relative support/prioritization score, not a probability; scores need not total 100.</p>
+      {(hypothesis.supported_by.length > 0 || hypothesis.contradicted_by.length > 0) && <details className="mt-4 text-sm">
         <summary className="cursor-pointer font-medium">{hypothesis.supported_by.length} supporting · {hypothesis.contradicted_by.length} contradicting</summary>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <div>
+          {hypothesis.supported_by.length > 0 && <div>
             <h4 className="font-medium">Supported by</h4>
             <ul className="mt-1 space-y-1 text-zinc-600 dark:text-zinc-400">
-              {hypothesis.supported_by.length ? hypothesis.supported_by.map((link) => <li key={`${link.evidence_id}-${link.reason}`}><strong>{link.evidence_id}</strong>: {link.reason}</li>) : <li>None recorded.</li>}
+              {hypothesis.supported_by.map((link) => <li key={`${link.evidence_id}-${link.reason}`}><strong>{link.evidence_id}</strong>: {link.reason}{evidenceById.get(link.evidence_id) && <p className="mt-1 text-xs">{evidenceById.get(link.evidence_id)!.content}</p>}</li>)}
             </ul>
-          </div>
-          <div>
+          </div>}
+          {hypothesis.contradicted_by.length > 0 && <div>
             <h4 className="font-medium">Contradicted by</h4>
             <ul className="mt-1 space-y-1 text-zinc-600 dark:text-zinc-400">
-              {hypothesis.contradicted_by.length ? hypothesis.contradicted_by.map((link) => <li key={`${link.evidence_id}-${link.reason}`}><strong>{link.evidence_id}</strong>: {link.reason}</li>) : <li>None recorded.</li>}
+              {hypothesis.contradicted_by.map((link) => <li key={`${link.evidence_id}-${link.reason}`}><strong>{link.evidence_id}</strong>: {link.reason}{evidenceById.get(link.evidence_id) && <p className="mt-1 text-xs">{evidenceById.get(link.evidence_id)!.content}</p>}</li>)}
             </ul>
-          </div>
+          </div>}
         </div>
-      </details>
+      </details>}
 
       <dl className="mt-4 space-y-2 text-sm">
-        <div><dt className="font-medium">Expected but absent</dt><dd>{hypothesis.expected_but_absent_ids.join(", ") || "None"}</dd></div>
-        <div><dt className="font-medium">Would be refuted by</dt><dd>{hypothesis.would_be_refuted_by}</dd></div>
+        {hypothesis.expected_but_absent_ids.length > 0 && <div><dt className="font-medium">Expected but absent</dt><dd>{hypothesis.expected_but_absent_ids.join(", ")}</dd></div>}
+        {hypothesis.would_be_refuted_by.trim() && <div><dt className="font-medium">Would be refuted by</dt><dd>{hypothesis.would_be_refuted_by}</dd></div>}
         {hypothesis.status === "rejected" && <>
           <div><dt className="font-medium">Killed by</dt><dd>{hypothesis.killed_by}</dd></div>
           <div><dt className="font-medium">Resurrection condition</dt><dd>{hypothesis.resurrection_condition}</dd></div>

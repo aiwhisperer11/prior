@@ -1,0 +1,23 @@
+{
+  "case_id": "case-cloudflare-waf-2019",
+  "case_title": "Cloudflare global outage, 2 July 2019, 13:42-14:09 UTC",
+  "domain": "Internet infrastructure incident",
+  "observed_outcome": "Cloudflare's edge network returned HTTP 502 errors for HTTP and HTTPS traffic globally from 13:42 to 14:09 UTC on 2 July 2019 (27 minutes), with CPU utilization on machines handling HTTP/HTTPS traffic reaching close to 100%. Core proxying, CDN, and WAF functionality were unavailable for customers worldwide during this window.",
+  "expected_behavior": "WAF rule changes are deployed globally within seconds via Cloudflare's Quicksilver config-distribution system; this is by design and bypasses the normal staged DOG/PIG/Canary rollout used for other software releases, because the WAF must respond rapidly to emerging threats. In exchange, the WAF release pipeline is expected to test each rule for runaway CPU utilization before it reaches production, and Cloudflare's edge software is expected to enforce a CPU-usage limit on any single regular expression evaluated against a request, so that one rule cannot consume unbounded CPU on a machine.",
+  "evidence": [
+    { "id": "E1", "label": "Pull request log", "content": "A pull request introducing a new WAF rule, intended to add a JavaScript-detection capability, was merged at 13:31 UTC on 2 July 2019. The rule's regex included the pattern .*(?:.*=.*) inside a larger expression, which is vulnerable to catastrophic backtracking against certain inputs." },
+    { "id": "E2", "label": "CI build log (TeamCity)", "content": "TeamCity built the updated WAF ruleset and ran the existing test suite at 13:37 UTC, and the change passed. The test suite did not include a check for runaway CPU utilization by a WAF rule." },
+    { "id": "E3", "label": "Quicksilver deployment log", "content": "The new ruleset began deploying automatically and globally at 13:42 UTC via Quicksilver, Cloudflare's config-distribution system, which propagates a change to every edge machine worldwide with a p99 latency of about 2.29 seconds." },
+    { "id": "E4", "label": "PagerDuty alert log", "content": "The first PagerDuty alert fired at 13:45 UTC. It was a synthetic test of WAF functionality failing, not a CPU-utilization alert." },
+    { "id": "E5", "label": "Incident response chat log", "content": "In the initial minutes of the incident, responders speculated that the global 502 errors resembled a large-scale attack of a type not seen before." },
+    { "id": "E6", "label": "Performance team CPU profiling", "content": "At 14:00 UTC, the Performance Team pulled live CPU data from an affected edge machine. The data clearly showed the WAF module consuming the CPU, not an external traffic surge; the attack theory was dismissed at this point." },
+    { "id": "E7", "label": "Incident response chat log", "content": "At 14:02 UTC, responders proposed terminating the WAF globally to stop the CPU exhaustion, since a targeted rollback of only the new rule was judged too slow: the standard rollback path required rebuilding the complete WAF ruleset, which the team reported would take too long during an active global outage." },
+    { "id": "E8", "label": "Quicksilver deployment log", "content": "Global WAF termination was executed at 14:07 UTC." },
+    { "id": "E9", "label": "Traffic and CPU monitoring", "content": "Traffic levels and CPU utilization on edge machines returned to normal by 14:09 UTC, 27 minutes after the automatic deployment began at 13:42 UTC. The WAF was re-enabled globally at 14:52 UTC after the rule was fixed and retested." },
+    { "id": "E10", "label": "Post-incident engineering review", "content": "The post-incident review found that a protection mechanism intended to limit excessive CPU usage by a single regular expression had been removed by mistake during a refactoring of the WAF completed weeks before 2 July 2019." },
+    { "id": "E11", "label": "Post-incident engineering review", "content": "The same review found the WAF's release test suite did not test for runaway CPU utilization; it validated rule correctness but not CPU behavior under adversarial input." }
+  ],
+  "user_hypotheses": [
+    "It was a large-scale attack of a type we hadn't seen before"
+  ]
+}
