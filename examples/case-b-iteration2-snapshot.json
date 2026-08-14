@@ -405,5 +405,7 @@
     "hypothesis_id": "H3",
     "justification": "H3 explains A1 through the absent renewal confirmation, expired certificate, TLS failures, valid retry-sweep replacement, and subsequent successful handshake. It also explains A2's rollback ineffectiveness and remains compatible with A3's normal database latency. H1 does not explain why rollback failed to reduce errors and has only temporal support; H4 is contradicted by E5's absence of a provider incident. H3 remains limited by the unobserved reason the 23:05 renewal path failed."
   },
-  "schema_version": "1.0.0"
+  "schema_version": "1.0.0",
+  "root_cause_status": "determined",
+  "undetermined_explanation": null
 }

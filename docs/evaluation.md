@@ -53,6 +53,136 @@ cause mechanism (a regex causing runaway CPU, enabled by two independently
 missing safeguards), rather than Case B's silent-cron-job shape. Run
 `npm run eval:case-b` and `npm run eval:case-cloudflare` to check both.
 
+A third case (`case-google-secops-2026`, sourced from Google Cloud's own status
+page at status.cloud.google.com/security/incidents/wCAYU8nZcNY1sMVJPb7p,
+captured 2026-08-12) stresses a different requirement entirely: Google resolved
+the incident without ever publishing a root cause, so there is no public ground
+truth to converge on. This case does not test whether Sherlock guesses the
+right mechanism — it tests whether Sherlock correctly declares the cause
+undetermined instead of inventing one, per the epistemic checks in
+`lib/server/case-google-secops-assertions.ts`. Run
+`npm run eval:case-google-secops` to check it.
+
+## Case Google-SecOps: live evaluation results
+
+First live run (real `OPENAI_API_KEY` call, prompt/schema unchanged): 12/14
+assertions passed. Two failures, two different causes:
+
+1. **A real evaluator false negative.** `Separates operational recovery from
+   causal explanation` failed even though the model's reasoning correctly
+   made the distinction: "E2 says the cause was under investigation and E10
+   resolves the incident without stating one." The original regex required
+   a resolution/mitigation word to be followed by a negation *and then* a
+   repeated "cause" — this sentence instead states "the cause" once, up
+   front, then refers back to it with the pronoun "one" after "without
+   stating." Fixed by splitting the check into two independent, ANDed
+   signals (`MENTIONS_CAUSE_PATTERN` anywhere in the text, plus
+   `RESOLUTION_WITHOUT_CONFIRMING_PATTERN` for the resolve/mitigate +
+   negation + confirmation-verb combination) instead of one strict
+   left-to-right sequence, in `lib/server/case-google-secops-assertions.ts`.
+   Regression test added in `tests/case-google-secops-engine.test.ts`.
+   Re-scoring the same saved live result (no new API call) went to 13/14.
+
+2. **A real, un-patched finding.** `Proposes at least two plausible, distinct
+   mechanism hypotheses` still fails: the model generated only one
+   sherlock-origin hypothesis (the "root cause undetermined" framing) plus
+   the user-seeded backlog/capacity hypothesis — it never proposed a second
+   candidate mechanism (defective deploy, shared dependency, index
+   corruption) despite the case containing a real, usable clue for one (E5's
+   simultaneous three-service onset, a natural cue for a shared-dependency or
+   bad-deploy hypothesis). This is left as-is: per the standing instruction
+   for this case, the evaluator is not adjusted to force a pass. The model
+   was epistemically disciplined about not overclaiming a cause, but settled
+   into "undetermined" without exploring the hypothesis space as broadly as
+   the case invites — a real, reportable gap in P5 ("generate your own...
+   hypothesis") breadth, not a defect in how the check is written.
+
+## Conceptual fix: root_cause_status is not a hypothesis
+
+The 13/14 result above was scored under the *original* schema, where "the
+cause is undetermined" was modeled as an ordinary sherlock-origin hypothesis
+(H4) that could — and did — become `prime_suspect`. That conflated two
+different questions: "is a specific mechanism responsibly determinable?" and
+"if so, which hypothesis is it?" A hypothesis is supposed to be a falsifiable
+candidate *mechanism* (P5); "we don't know" is not a mechanism, and forcing it
+into the hypotheses array meant it competed against real mechanism hypotheses
+for confidence and coherence in a way that didn't make sense, and diluted
+`atLeastTwoPlausibleMechanismHypotheses`-style checks (the pseudo-hypothesis
+itself was one of the "two").
+
+Fixed by adding two independent schema fields (`lib/investigation.schema.json`,
+`types/sherlock.ts`): `root_cause_status: "determined" | "undetermined"` and
+`undetermined_explanation: string | null`, and making `prime_suspect` nullable.
+`prime_suspect` is now null whenever `root_cause_status` is `"undetermined"`;
+C4 and P5 in `lib/sherlock-prompt.ts` (prompt version bumped to 3.2.0) now
+explicitly forbid modeling the epistemic conclusion as a hypothesis or
+selecting it as prime_suspect. `nextTestDiscriminatesPrimeSuspect`
+(`lib/server/investigation-assertions-shared.ts`) gained a second mode for
+`prime_suspect === null`: instead of requiring an outcome that weakens *the*
+prime suspect, it requires an outcome that favors one genuine rival and
+weakens a different one among the real candidate hypotheses — P9's intent
+("discriminate the top competing hypotheses") survives even with no current
+leader.
+
+`case-google-secops-assertions.ts` was rewritten accordingly: "the output
+recognizes the cause as undetermined" is now a structural check
+(`root_cause_status === "undetermined" && prime_suspect === null &&
+undetermined_explanation` non-empty) instead of regex text-matching, and a
+new check (`noHypothesisRestatesUndeterminedAsMechanism`) guards against the
+model still smuggling that conclusion into a hypothesis statement. Case B and
+Cloudflare (both real "determined" cases) got `root_cause_status: "determined"`
+and `undetermined_explanation: null` added to their fixtures — no other change,
+since they already had a real, evidence-supported leading mechanism.
+
+### Post-refactor live verification
+
+A fresh `npm run eval:case-google-secops` run against the new schema (real
+`OPENAI_API_KEY` call, independent of the 13/14 run above — a new investigation,
+not a re-score) first reported 11/14, with three failures:
+
+1. **`User hypotheses preserve origin=user` — real false negative.** The model
+   extended the user's hypothesis from "...caused the freshness delays" to
+   "...caused the data-freshness delays and downstream Search and Rule
+   re-evaluation impact" — a faithful mid-phrase insertion ("data-") plus a
+   trailing extension, keeping every original word in order. Strict substring
+   containment rejected this as a dropped hypothesis. Fixed by replacing
+   substring containment with an order-preserving word-subsequence check
+   (`isWordSubsequence` in `lib/server/investigation-assertions-shared.ts`) —
+   still deterministic and structural, not fuzzy similarity. Regression tests
+   added, including a negative case confirming out-of-order/unrelated text is
+   still rejected.
+2. **`Proposes at least two plausible, distinct mechanism hypotheses` — real
+   false negative.** The model's shared-dependency hypothesis read "A shared
+   regional data-availability dependency", but the mechanism pattern required
+   "shared" immediately adjacent to "dependency". Fixed by allowing up to four
+   intervening descriptive words in the "shared dependency" pattern in
+   `case-google-secops-assertions.ts`. This is a narrow robustness fix to
+   recognize an already-intended category with realistic phrasing — not an
+   expansion of what counts as a mechanism category, which would have been
+   changing the rubric's substance to force a pass.
+3. **`Separates operational recovery from causal explanation` — real,
+   un-patched finding.** None of `coherence.explanation`, `learning.summary`,
+   `undetermined_explanation`, or `open_case_index.explanation` used
+   resolve/mitigate language at all this run (confirmed by direct inspection,
+   not just regex non-match) — the model's reasoning stayed implicitly
+   consistent with "resolution ≠ cause" but never stated the distinction
+   explicitly. Left as-is.
+
+Re-scoring the same saved live result against both fixes (no new API call)
+went to **13/14** — the `root_cause_status`/`prime_suspect`/
+`undetermined_explanation` structural checks all passed cleanly on a real,
+independent run, confirming the conceptual fix works against live model
+output, not just the hand-authored fixture. `npm test` (fast, fixture-based)
+is green at 122/122.
+
+**Documentation note, not a schema change:** `case.evidence` in
+`lib/investigation.schema.json` now explicitly documents that "evidence" means
+material *supplied* to the investigation (a claim, a log line, a status
+update), not a guarantee of independent validation — `evidence.content` is an
+input claim to reason from (P1), not adjudicated ground truth. A future
+revision may split evidence into explicit fact/inference/claim categories;
+this session deliberately did not do that migration yet.
+
 ## Case Cloudflare-WAF: live evaluation results
 
 First live run (real `OPENAI_API_KEY` call, `gpt-5.6-terra`, prompt v3.0

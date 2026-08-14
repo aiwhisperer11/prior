@@ -16,14 +16,12 @@ const quadrants: Array<{
 ];
 
 function MatrixItems({ items }: { items: MatrixItem[] }) {
-  if (!items.length) return <p className="text-sm text-zinc-500">None recorded.</p>;
-
   return (
     <ul className="space-y-3">
       {items.map((item) => (
         <li key={item.id} className="border-t border-zinc-200 pt-3 first:border-t-0 first:pt-0 dark:border-zinc-800">
           <p className="font-medium">{item.id}: {item.description}</p>
-          <details className="mt-1 text-sm text-zinc-600 dark:text-zinc-400"><summary className="cursor-pointer">Why it matters</summary><p className="mt-1">{item.significance}</p></details>
+          {item.significance.trim() && <details className="mt-1 text-sm text-zinc-600 dark:text-zinc-400"><summary className="cursor-pointer">Why it matters</summary><p className="mt-1">{item.significance}</p></details>}
           <p className="mt-1 text-xs text-zinc-500">
             Evidence: {item.evidence_ids.join(", ") || "none"} · Hypotheses: {item.related_hypothesis_ids.join(", ") || "none"}
           </p>
@@ -38,7 +36,7 @@ export default function ExpectationMatrix({ matrix }: ExpectationMatrixProps) {
     <section aria-labelledby="expectation-matrix-heading">
       <h2 id="expectation-matrix-heading" className="text-xl font-semibold">Expectation matrix</h2>
       <div className="mt-3 grid gap-3 md:grid-cols-2">
-        {quadrants.map((quadrant) => (
+        {quadrants.filter((quadrant) => matrix[quadrant.key].length > 0).map((quadrant) => (
           <article
             key={quadrant.key}
             className={`rounded-lg border p-4 ${quadrant.key === "expected_absent" ? "border-amber-500 bg-amber-50 dark:bg-amber-950/30" : "border-zinc-200 dark:border-zinc-800"}`}

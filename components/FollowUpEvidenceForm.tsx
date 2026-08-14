@@ -10,13 +10,15 @@ import {
 } from "@/lib/follow-up-form-state";
 import { parseInvestigationApiResponse } from "@/lib/investigation-response";
 import type { SherlockInvestigation } from "@/types/sherlock";
+import type { MemoryUpdate } from "@/components/SherlockForm";
 
 interface FollowUpEvidenceFormProps {
   previousSnapshot: SherlockInvestigation;
   onSnapshot: (snapshot: SherlockInvestigation) => void;
+  onMemory: (update: MemoryUpdate) => void;
 }
 
-export default function FollowUpEvidenceForm({ previousSnapshot, onSnapshot }: FollowUpEvidenceFormProps) {
+export default function FollowUpEvidenceForm({ previousSnapshot, onSnapshot, onMemory }: FollowUpEvidenceFormProps) {
   const [state, dispatch] = useReducer(followUpFormReducer, initialFollowUpFormState);
   const [memoryNotice, setMemoryNotice] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -56,6 +58,7 @@ export default function FollowUpEvidenceForm({ previousSnapshot, onSnapshot }: F
         dispatch({ type: "request-failed", error: `The API returned an invalid investigation: ${parsed.errors.map((entry) => `${entry.instancePath}: ${entry.message}`).join("; ")}` });
         return;
       }
+      onMemory({ precedents: parsed.response.precedents, unclassified_memory: parsed.response.unclassified_memory, suspected_duplicate_memory: parsed.response.suspected_duplicate_memory, memory: parsed.response.memory, storage: parsed.response.storage });
       onSnapshot(parsed.response.investigation);
       setMemoryNotice(parsed.response.storage === "local-mock"
         ? `Mock local memory fallback. ${parsed.response.precedents.length} precedent lead(s) retrieved; memory is not evidence.`

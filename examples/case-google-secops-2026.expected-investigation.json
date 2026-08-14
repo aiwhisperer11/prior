@@ -1,0 +1,197 @@
+{
+  "schema_version": "1.0.0",
+  "meta": {
+    "case_id": "case-google-secops-2026",
+    "case_title": "Google SecOps data freshness delays, 31 Jul-1 Aug 2026",
+    "iteration": 1,
+    "domain": "Cloud security operations incident"
+  },
+  "case": {
+    "observed_outcome": "Google SecOps customers experienced data-freshness delays from 2026-07-31 10:11 PDT to 2026-08-01 22:53 PDT. The issue began as availability delays in Stats Search, then expanded to Search and Rule re-evaluation. Symptoms included inconsistent analytical and aggregate results, incomplete Search results, data older than 24 hours missing in some periods, and rules that may not have been re-evaluated against data ingested during the incident. Impact spanned multiple regions (19 regions listed across Africa, Asia, Europe, the Middle East, the Americas, and Australia in the 21:59 PDT update) and was mitigated progressively region by region; Multi Region-us was among the last regions still pending mitigation. No workaround was available at any point. Google's final update confirms the issue as resolved but does not publish a root cause.",
+    "expected_behavior": "Google SecOps Stats Search, Search, and Rule re-evaluation are expected to reflect ingested data promptly and consistently across all regions, and rules are expected to be re-evaluated against all newly ingested data. The only evidence available for this investigation is Google's own public status page (status.cloud.google.com/security/incidents/wCAYU8nZcNY1sMVJPb7p); no internal engineering telemetry, deploy history, capacity metrics, or incident postmortem is publicly available. A causal explanation is only justified if it is directly supported by the public updates; absent that support, the honest conclusion is that the root cause is undetermined from available public evidence, and resolving the service must not be interpreted as confirming a cause.",
+    "evidence": [
+      { "id": "E1", "label": "Status update, 2026-07-31 10:49 PDT", "content": "\"We are investigating a potential issue with Google SecOps.\" No affected service, symptom, or cause is specified yet. No workaround.", "provided_in_iteration": 1 },
+      { "id": "E2", "label": "Status update, 2026-07-31 11:04 PDT", "content": "States the issue began at 10:11 PDT. Affected service: Stats Search, in the European and asia-southeast1 regions. Symptom: \"Delays in data availability for stats search.\" States \"Root cause of the issue is under investigation.\" Notes stats data will be refreshed by the engineering team once resolved. No workaround.", "provided_in_iteration": 1 },
+      { "id": "E3", "label": "Status update, 2026-07-31 12:44 PDT", "content": "Affected service: Stats Search. Symptom: \"Inconsistent analytical and aggregate results for approximately last 20 hours.\" States the engineering team is actively investigating and implementing mitigation. No workaround.", "provided_in_iteration": 1 },
+      { "id": "E4", "label": "Status update, 2026-07-31 15:57 PDT", "content": "Affected service: Stats Search. Symptom: \"Inconsistent analytical and aggregate results for last 20 hours of ingested data.\" No workaround.", "provided_in_iteration": 1 },
+      { "id": "E5", "label": "Status update, 2026-07-31 17:02 PDT", "content": "Affected services expand to: \"Search, Stats Search, and Rules Reevaluation.\" Symptoms: \"Inconsistent analytical and aggregate results for last 24 hours; incomplete Search results; rule re-evaluation may not take place.\" No workaround.", "provided_in_iteration": 1 },
+      { "id": "E6", "label": "Status update, 2026-07-31 21:59 PDT", "content": "Affected services: \"Search, Stats Search, and Rule re-evaluation.\" States: \"Issue mitigated for most regions; mitigation ongoing in Multi Region-us, asia-south1, asia-southeast1, australia-southeast1, Multi Region-eu, europe-west3, me-west1, northamerica-northeast2.\" Lists 19 affected regions in total spanning Africa, Asia, Europe, the Middle East, the Americas, and Australia. No workaround.", "provided_in_iteration": 1 },
+      { "id": "E7", "label": "Status update, 2026-08-01 09:07 PDT", "content": "Services: \"Search, Stats Search, and Rule re-evaluation.\" States: \"Mitigated for most regions; mitigation ongoing in Multi Region-us, Multi Region-eu, europe-west3.\" No workaround.", "provided_in_iteration": 1 },
+      { "id": "E8", "label": "Status update, 2026-08-01 16:38 PDT", "content": "Services: \"Search, Stats Search, and Rule re-evaluation.\" States: \"Mitigated for most regions; mitigation work underway in Multi Region-us.\" No workaround.", "provided_in_iteration": 1 },
+      { "id": "E9", "label": "Status update, 2026-08-01 20:42 PDT", "content": "States: \"Issue mitigated for most regions.\" Notes \"Mitigation work currently underway\" specifically in Multi Region-us. No workaround.", "provided_in_iteration": 1 },
+      { "id": "E10", "label": "Resolution update, 2026-08-01 23:10 PDT", "content": "\"[Resolved] Google SecOps customers may have experienced delays in data freshness.\" Affected services: Search, Stats Search, Rule re-evaluation. States the issue was resolved as of Saturday 2026-08-01 22:53 PDT. Symptoms experienced during the incident: \"Data older than 24 hours missing; incomplete Search results; rule re-evaluation may not have occurred.\" Workaround: \"None at this time as the issue stands resolved.\" No root cause is stated anywhere in this update.", "provided_in_iteration": 1 }
+    ]
+  },
+  "expectation_matrix": {
+    "expected_present": [
+      {
+        "id": "X1",
+        "description": "The first substantive update acknowledged the issue was under investigation before any affected service or symptom was specified.",
+        "evidence_ids": ["E1"],
+        "significance": "Normal incident-response opening; establishes the timeline baseline for when investigation began relative to the eventual resolution update.",
+        "related_hypothesis_ids": []
+      }
+    ],
+    "unexpected_present": [
+      {
+        "id": "X2",
+        "description": "Symptom scope expanded from Stats Search alone to Search, Stats Search, and Rule re-evaluation together within about six hours of the first update.",
+        "evidence_ids": ["E5"],
+        "significance": "A simultaneous expansion across three distinct services is the strongest scope signal in the record and is consistent with either a shared upstream cause or independent but coincident failures.",
+        "related_hypothesis_ids": ["H2", "H3"]
+      },
+      {
+        "id": "X3",
+        "description": "Mitigation proceeded on a rolling per-region basis across at least 19 regions over more than 24 hours, with Multi Region-us among the last regions still pending mitigation.",
+        "evidence_ids": ["E6", "E7", "E8", "E9"],
+        "significance": "A region-by-region mitigation pattern extending over a full day is consistent with either a rolling capacity/backlog remediation or a region-by-region dependency fix; it does not by itself indicate which.",
+        "related_hypothesis_ids": ["H1", "H3"]
+      }
+    ],
+    "expected_absent": [
+      {
+        "id": "X4",
+        "description": "The resolution update does not identify a root cause, even though the second update explicitly stated one was under investigation.",
+        "evidence_ids": ["E2", "E10"],
+        "significance": "This is the central absence keeping root_cause_status undetermined rather than pointing to a specific mechanism: the record opens with an open causal question and closes without answering it.",
+        "related_hypothesis_ids": []
+      }
+    ],
+    "unexpected_absent": [
+      {
+        "id": "X5",
+        "description": "None of the candidate mechanism hypotheses (backlog/capacity, defective deploy, shared dependency) has internal confirming or disconfirming data available in the public record.",
+        "evidence_ids": [],
+        "significance": "Each mechanism hypothesis predicts internal data that would confirm or refute it; the absence of any such data for any of them is why none can be elevated above the others from public evidence alone.",
+        "related_hypothesis_ids": ["H1", "H2", "H3"]
+      }
+    ]
+  },
+  "anomalies": [
+    {
+      "id": "A1",
+      "description": "Symptom scope widened from a single service in two regions to three services across at least 19 regions before being mitigated region by region over more than a day.",
+      "matrix_item_ids": ["X2", "X3"],
+      "severity": "high",
+      "fully_explained": false,
+      "hypothesis_ids": ["H1", "H2", "H3"]
+    },
+    {
+      "id": "A2",
+      "description": "The second update states the root cause is under investigation, but the final resolution update does not publish one.",
+      "matrix_item_ids": ["X1", "X4"],
+      "severity": "high",
+      "fully_explained": true,
+      "hypothesis_ids": []
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "H1",
+      "statement": "A capacity or backlog problem in the data-ingestion or processing pipeline caused the freshness delays",
+      "origin": "user",
+      "status": "active",
+      "confidence": 32,
+      "supported_by": [
+        { "evidence_id": "E3", "reason": "E3 describes inconsistent aggregate results over an approximately 20-hour window, a pattern consistent with an ingestion backlog gradually falling behind and being worked down." }
+      ],
+      "contradicted_by": [],
+      "expected_but_absent_ids": ["M1"],
+      "would_be_refuted_by": "Internal ingestion backlog or queue-depth metrics for the incident window showing no backlog buildup at any point.",
+      "killed_by": null,
+      "resurrection_condition": null
+    },
+    {
+      "id": "H2",
+      "statement": "A defective deploy to the search or rule-evaluation pipeline is a plausible cause, though no deploy record is public",
+      "origin": "sherlock",
+      "status": "active",
+      "confidence": 30,
+      "supported_by": [
+        { "evidence_id": "E5", "reason": "E5 records the symptom scope expanding simultaneously to Search, Stats Search, and Rule re-evaluation together, consistent with a single shared-code change affecting all three services at once." }
+      ],
+      "contradicted_by": [],
+      "expected_but_absent_ids": ["M2"],
+      "would_be_refuted_by": "Google's deploy history showing no change was made to any of the three affected services in the relevant window.",
+      "killed_by": null,
+      "resurrection_condition": null
+    },
+    {
+      "id": "H3",
+      "statement": "A shared downstream dependency used by Stats Search, Search, and Rule re-evaluation experienced a fault that propagated across all three services and multiple regions",
+      "origin": "sherlock",
+      "status": "active",
+      "confidence": 28,
+      "supported_by": [
+        { "evidence_id": "E5", "reason": "E5 shows all three services becoming affected together, consistent with a shared backend dependency rather than three independent failures." },
+        { "evidence_id": "E6", "reason": "E6 shows the same three services recovering together on a region-by-region basis, consistent with a shared backend dependency being remediated region by region." }
+      ],
+      "contradicted_by": [],
+      "expected_but_absent_ids": ["M4"],
+      "would_be_refuted_by": "Internal health or incident logs for the shared backend components showing no correlated incident during the window.",
+      "killed_by": null,
+      "resurrection_condition": null
+    }
+  ],
+  "missing_evidence": [
+    {
+      "id": "M1",
+      "description": "Internal data-ingestion backlog and queue-depth metrics for the affected services during 31 Jul-1 Aug 2026, to test whether backlog or capacity pressure coincided with the incident window.",
+      "criticality": "useful",
+      "impact_if_found": "A confirmed backlog buildup coinciding with the window would raise H1 substantially. Metrics showing no backlog buildup at any point would weaken H1 toward rejection.",
+      "related_hypothesis_ids": ["H1"]
+    },
+    {
+      "id": "M2",
+      "description": "Google's internal deploy history and change log for Search, Stats Search, and Rule re-evaluation covering 31 Jul-1 Aug 2026.",
+      "criticality": "critical",
+      "impact_if_found": "A matching deploy or configuration change would raise H2 substantially and move root_cause_status toward determined. No matching change found would weaken H2.",
+      "related_hypothesis_ids": ["H2"]
+    },
+    {
+      "id": "M3",
+      "description": "A published Google engineering postmortem or root-cause statement for this incident.",
+      "criticality": "critical",
+      "impact_if_found": "Would directly move root_cause_status to determined and confirm or rule out H1, H2, and H3 depending on the mechanism it names.",
+      "related_hypothesis_ids": ["H1", "H2", "H3"]
+    },
+    {
+      "id": "M4",
+      "description": "Internal health or incident logs for the shared backend service(s) underlying Stats Search, Search, and Rule re-evaluation.",
+      "criticality": "useful",
+      "impact_if_found": "A correlated incident in a shared dependency would raise H3 substantially. No correlated incident found would weaken H3.",
+      "related_hypothesis_ids": ["H3"]
+    }
+  ],
+  "root_cause_status": "undetermined",
+  "undetermined_explanation": "The record explicitly opens with the root cause under investigation (E2) and closes without ever publishing one (E10), which is exactly what an undetermined-cause conclusion predicts. H1, H2, and H3 each explain part of A1's widening-scope pattern, but none has internal confirming data in the public record (M1, M2, M4 respectively), so none can be responsibly elevated to prime suspect without evidence this investigation does not have. Resolving the incident (E9, E10) mitigated symptoms; it does not by itself establish which mechanism, if any, was the cause.",
+  "prime_suspect": null,
+  "coherence": {
+    "score": 55,
+    "explanation": "The undetermined conclusion accounts for A2's central contradiction (root cause under investigation initially, never published at resolution) directly from the record. It cannot score higher because A1's widening-scope pattern remains only partially explained: H1, H2, and H3 each fit part of the observed timeline, but none is confirmed or ruled out without internal data (M1, M2, M4) this investigation does not have access to."
+  },
+  "open_case_index": {
+    "score": 58,
+    "explanation": "A1's widening-scope pattern is explained about equally well by three untested mechanisms (H1, H2, H3), so it counts as unresolved rather than explained by any one of them. A2 is fully resolved by the undetermined-cause conclusion itself. The case remains open primarily because M1, M2, and M4 — the internal data that would discriminate between the candidate mechanisms — are not publicly available, not because the public evidence itself is contradictory."
+  },
+  "next_test": {
+    "description": "Obtain Google's internal deploy/configuration-change history and ingestion backlog metrics for the affected services covering 31 Jul-1 Aug 2026, to determine whether a specific deploy or a capacity/backlog pattern coincides with the incident window.",
+    "discriminates_between": ["H1", "H2", "H3"],
+    "does_not_discriminate_from": ["H3"],
+    "outcome_map": [
+      { "observed_result": "Deploy/configuration-change history shows a change coincident with onset and matching the regional mitigation pattern, while ingestion backlog metrics show no capacity saturation.", "favors_hypothesis_id": "H2", "weakens_hypothesis_id": "H1" },
+      { "observed_result": "Ingestion backlog or queue-depth metrics show sustained saturation coincident with onset and regional recovery, while no matching deploy or configuration change is found.", "favors_hypothesis_id": "H1", "weakens_hypothesis_id": "H2" },
+      { "observed_result": "Neither deploy/configuration history nor backlog metrics are available for the window.", "favors_hypothesis_id": null, "weakens_hypothesis_id": null }
+    ]
+  },
+  "mirror_question": "If a specific cause were established next week, the clue we are probably underweighting today is the simultaneous three-service failure onset in E5, which is a stronger signal for a single shared mechanism (H2 or H3) than the region-by-region mitigation pattern we are currently treating as inconclusive.",
+  "learning": {
+    "is_baseline": true,
+    "summary": "Baseline confidences are set directly from the public record. root_cause_status is undetermined because the record itself states the root cause was under investigation and never later confirms one (E2, E10) — direct support for that epistemic conclusion rather than one that must be inferred, and it is deliberately not modeled as a hypothesis. H1, H2, and H3 remain plausible and simultaneously active because they are not mutually exclusive candidate mechanisms and none is contradicted by the public evidence; none is elevated to prime suspect because none has internal confirming data (M1, M2, M4) available. Resolution of the incident (E9, E10) is treated as operational recovery only, not as evidence for any specific mechanism.",
+    "updates": [
+      { "hypothesis_id": "H1", "previous_confidence": null, "new_confidence": 32, "previous_status": null, "new_status": "active", "reason": "Baseline: E3's ~20-hour inconsistency window is consistent with a backlog pattern, but M1 is unavailable to confirm it." },
+      { "hypothesis_id": "H2", "previous_confidence": null, "new_confidence": 30, "previous_status": null, "new_status": "active", "reason": "Baseline: E5's simultaneous three-service onset is consistent with a shared deploy, but M2 is unavailable to confirm it." },
+      { "hypothesis_id": "H3", "previous_confidence": null, "new_confidence": 28, "previous_status": null, "new_status": "active", "reason": "Baseline: E5 and E6 are consistent with a shared dependency, but M4 is unavailable to confirm it." }
+    ]
+  }
+}

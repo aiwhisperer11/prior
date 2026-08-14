@@ -387,5 +387,7 @@
         "reason": "Baseline: E6 directly kills the attack theory: CPU consumption is localized to WAF rule evaluation, not attacker traffic."
       }
     ]
-  }
+  },
+  "root_cause_status": "determined",
+  "undetermined_explanation": null
 }

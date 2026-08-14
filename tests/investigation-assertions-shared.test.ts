@@ -39,6 +39,8 @@ function investigationWithHypothesis(statement: string, origin: "user" | "sherlo
       },
     ],
     missing_evidence: [],
+    root_cause_status: "determined",
+    undetermined_explanation: null,
     prime_suspect: { hypothesis_id: "H1", justification: "j", condemning_datum: "c", absolving_datum: "a" },
     coherence: { score: 50, explanation: "e" },
     open_case_index: { score: 50, explanation: "e" },
@@ -67,7 +69,7 @@ function hypothesis(id: string, overrides: Partial<SherlockHypothesis> = {}): Sh
 
 function investigationWithHypothesesAndNextTest(
   hypotheses: SherlockHypothesis[],
-  primeSuspectId: string,
+  primeSuspectId: string | null,
   nextTest: NextTest,
 ): SherlockInvestigation {
   return {
@@ -78,7 +80,9 @@ function investigationWithHypothesesAndNextTest(
     anomalies: [],
     hypotheses,
     missing_evidence: [],
-    prime_suspect: { hypothesis_id: primeSuspectId, justification: "j", condemning_datum: "c", absolving_datum: "a" },
+    root_cause_status: primeSuspectId === null ? "undetermined" : "determined",
+    undetermined_explanation: primeSuspectId === null ? "explanation" : null,
+    prime_suspect: primeSuspectId === null ? null : { hypothesis_id: primeSuspectId, justification: "j", condemning_datum: "c", absolving_datum: "a" },
     coherence: { score: 50, explanation: "e" },
     open_case_index: { score: 50, explanation: "e" },
     next_test: nextTest,
@@ -103,6 +107,33 @@ test("userHypothesesPreserved tolerates contraction expansion and punctuation di
 test("userHypothesesPreserved still rejects a dropped user hypothesis", () => {
   const request = baseRequest(["It was a large-scale attack of a type we hadn't seen before"]);
   const investigation = investigationWithHypothesis("A catastrophic-backtracking regex caused the CPU spike.", "sherlock");
+
+  assert.equal(userHypothesesPreserved(request, investigation), false);
+});
+
+/**
+ * Regression test for a real false negative found live: the model extended
+ * "caused the freshness delays" to "caused the data-freshness delays and
+ * downstream Search and Rule re-evaluation impact" — a faithful insertion
+ * and trailing extension that kept every original word in order, but broke
+ * strict substring containment because "data" was inserted mid-phrase.
+ */
+test("userHypothesesPreserved tolerates a faithful mid-phrase insertion and trailing extension", () => {
+  const request = baseRequest(["A capacity or backlog problem in the data-ingestion or processing pipeline caused the freshness delays"]);
+  const investigation = investigationWithHypothesis(
+    "A capacity or backlog problem in the data-ingestion or processing pipeline caused the data-freshness delays and downstream Search and Rule re-evaluation impact.",
+    "user",
+  );
+
+  assert.equal(userHypothesesPreserved(request, investigation), true);
+});
+
+test("userHypothesesPreserved still rejects out-of-order or unrelated word overlap", () => {
+  const request = baseRequest(["A capacity or backlog problem caused the freshness delays"]);
+  const investigation = investigationWithHypothesis(
+    "The freshness delays caused engineers to investigate a capacity problem, unrelated to any backlog.",
+    "user",
+  );
 
   assert.equal(userHypothesesPreserved(request, investigation), false);
 });
@@ -146,6 +177,56 @@ test("nextTestDiscriminatesPrimeSuspect still fails if every rival is declared n
   const result = nextTestDiscriminatesPrimeSuspect(investigation);
   assert.equal(result.passed, false);
   assert.match(result.detail, /does_not_discriminate_from/);
+});
+
+/**
+ * When root_cause_status is "undetermined" there is no prime suspect to
+ * anchor P9 on — the requirement generalizes to "some outcome favors one
+ * genuine rival and weakens a different one."
+ */
+test("nextTestDiscriminatesPrimeSuspect (undetermined mode) passes when an outcome favors one genuine rival and weakens another", () => {
+  const hypotheses = [hypothesis("H1"), hypothesis("H2"), hypothesis("H3")];
+  const nextTest: NextTest = {
+    description: "d",
+    discriminates_between: ["H1", "H2", "H3"],
+    does_not_discriminate_from: ["H3"],
+    outcome_map: [
+      { observed_result: "some result", favors_hypothesis_id: "H2", weakens_hypothesis_id: "H1" },
+    ],
+  };
+  const investigation = investigationWithHypothesesAndNextTest(hypotheses, null, nextTest);
+
+  assert.equal(nextTestDiscriminatesPrimeSuspect(investigation).passed, true);
+});
+
+test("nextTestDiscriminatesPrimeSuspect (undetermined mode) fails with fewer than two genuine rivals", () => {
+  const hypotheses = [hypothesis("H1"), hypothesis("H2"), hypothesis("H3")];
+  const nextTest: NextTest = {
+    description: "d",
+    discriminates_between: ["H1", "H2", "H3"],
+    does_not_discriminate_from: ["H2", "H3"],
+    outcome_map: [],
+  };
+  const investigation = investigationWithHypothesesAndNextTest(hypotheses, null, nextTest);
+
+  const result = nextTestDiscriminatesPrimeSuspect(investigation);
+  assert.equal(result.passed, false);
+  assert.match(result.detail, /Fewer than two genuine rivals/);
+});
+
+test("nextTestDiscriminatesPrimeSuspect (undetermined mode) fails when an outcome only favors, without weakening a different hypothesis", () => {
+  const hypotheses = [hypothesis("H1"), hypothesis("H2")];
+  const nextTest: NextTest = {
+    description: "d",
+    discriminates_between: ["H1", "H2"],
+    does_not_discriminate_from: [],
+    outcome_map: [
+      { observed_result: "some result", favors_hypothesis_id: "H1", weakens_hypothesis_id: null },
+    ],
+  };
+  const investigation = investigationWithHypothesesAndNextTest(hypotheses, null, nextTest);
+
+  assert.equal(nextTestDiscriminatesPrimeSuspect(investigation).passed, false);
 });
 
 test("invalidNonDiscriminatingIds rejects an id outside discriminates_between", () => {

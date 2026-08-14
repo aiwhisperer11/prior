@@ -9,9 +9,8 @@ export function evaluateCaseB(
 ): CaseBAssertion[] {
   const deploy = hypothesisFor(investigation, /deploy/i);
   const database = hypothesisFor(investigation, /database.*overload|overload.*database/i);
-  const primeSuspect = investigation.hypotheses.find(
-    (hypothesis) => hypothesis.id === investigation.prime_suspect.hypothesis_id,
-  );
+  const primeSuspectId = investigation.prime_suspect?.hypothesis_id ?? null;
+  const primeSuspect = investigation.hypotheses.find((hypothesis) => hypothesis.id === primeSuspectId);
   const tlsAbsence = investigation.expectation_matrix.expected_absent.find(
     (item) => /tls.*renewal|renewal.*tls/i.test(item.description) && /log|confirmation|entry/i.test(item.description),
   );
@@ -25,7 +24,7 @@ export function evaluateCaseB(
   );
   const retryReasoning = [
     investigation.coherence.explanation,
-    investigation.prime_suspect.justification,
+    investigation.prime_suspect?.justification ?? "",
     investigation.learning.summary,
     ...investigation.hypotheses.flatMap((hypothesis) => [
       ...hypothesis.supported_by.map((link) => link.reason),
@@ -36,9 +35,14 @@ export function evaluateCaseB(
   return [
     ...sharedAssertions(request, investigation),
     {
+      name: "Root cause status is determined, with a real prime suspect",
+      passed: investigation.root_cause_status === "determined" && investigation.prime_suspect !== null,
+      detail: `root_cause_status is ${investigation.root_cause_status}; prime_suspect is ${investigation.prime_suspect ? investigation.prime_suspect.hypothesis_id : "null"}.`,
+    },
+    {
       name: "Deploy is not selected by temporal proximity alone",
-      passed: Boolean(deploy && deploy.id !== investigation.prime_suspect.hypothesis_id && deploy.status !== "active"),
-      detail: deploy ? `Deploy status is ${deploy.status}; prime suspect is ${investigation.prime_suspect.hypothesis_id}.` : "No deploy hypothesis was returned.",
+      passed: Boolean(deploy && deploy.id !== primeSuspectId && deploy.status !== "active"),
+      detail: deploy ? `Deploy status is ${deploy.status}; prime suspect is ${primeSuspectId ?? "none"}.` : "No deploy hypothesis was returned.",
     },
     {
       name: "Missing or contradictory deploy artifacts weaken deploy",

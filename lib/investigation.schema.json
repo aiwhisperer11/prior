@@ -12,6 +12,8 @@
     "anomalies",
     "hypotheses",
     "missing_evidence",
+    "root_cause_status",
+    "undetermined_explanation",
     "prime_suspect",
     "coherence",
     "open_case_index",
@@ -63,7 +65,7 @@
         },
         "evidence": {
           "type": "array",
-          "description": "All evidence items known in this iteration, both user-provided and added in later iterations.",
+          "description": "All evidence items known in this iteration, both user-provided and added in later iterations. NOTE: 'evidence' here means material supplied to the investigation (a claim, a log line, a status update, a report) — it is not a guarantee that every item has been independently validated as true. Treat evidence.content as an input claim to reason from (per P1), not as ground truth beyond dispute. A future schema revision may split evidence into explicit fact/inference/claim categories; until then, this distinction is a documentation note, not a structural one.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -264,9 +266,18 @@
         }
       }
     },
+    "root_cause_status": {
+      "type": "string",
+      "enum": ["determined", "undetermined"],
+      "description": "Independent epistemic conclusion about whether the evidence justifies naming one active hypothesis as the leading causal explanation. This is NOT a hypothesis and must never be represented as one, given a hypothesis id, or selected as prime_suspect — 'the cause is undetermined' is a statement about the state of the investigation, not a candidate mechanism. 'determined' requires prime_suspect to be non-null; 'undetermined' requires prime_suspect to be null and undetermined_explanation to be filled in."
+    },
+    "undetermined_explanation": {
+      "type": ["string", "null"],
+      "description": "Required (non-null, case-specific) when root_cause_status is 'undetermined': which anomalies remain unexplained by any single hypothesis, and what evidence would be needed to move to 'determined'. Null when root_cause_status is 'determined'."
+    },
     "prime_suspect": {
-      "type": "object",
-      "description": "The single strongest current explanation, with its conviction and absolution conditions. Must correspond to the active hypothesis with highest confidence.",
+      "type": ["object", "null"],
+      "description": "The single strongest current explanation, with its conviction and absolution conditions. Must correspond to the active hypothesis with highest confidence. Null when root_cause_status is 'undetermined' — do not invent a hypothesis whose content is merely that the cause is undetermined in order to fill this field.",
       "additionalProperties": false,
       "required": ["hypothesis_id", "justification", "condemning_datum", "absolving_datum"],
       "properties": {

@@ -86,6 +86,8 @@ export interface PrimeSuspect {
   absolving_datum: string;
 }
 
+export type RootCauseStatus = "determined" | "undetermined";
+
 export interface ExplainedScore {
   score: number;
   explanation: string;
@@ -127,7 +129,9 @@ export interface SherlockInvestigation {
   anomalies: Anomaly[];
   hypotheses: SherlockHypothesis[];
   missing_evidence: MissingEvidence[];
-  prime_suspect: PrimeSuspect;
+  root_cause_status: RootCauseStatus;
+  undetermined_explanation: string | null;
+  prime_suspect: PrimeSuspect | null;
   coherence: ExplainedScore;
   open_case_index: ExplainedScore;
   next_test: NextTest;

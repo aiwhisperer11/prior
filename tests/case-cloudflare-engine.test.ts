@@ -68,7 +68,7 @@ test("an investigation that treats the attack theory as prime suspect fails the 
   const expected = readJson<SherlockInvestigation>("../examples/case-cloudflare-waf-2019.expected-investigation.json");
   const investigation: SherlockInvestigation = {
     ...expected,
-    prime_suspect: { ...expected.prime_suspect, hypothesis_id: "H1" },
+    prime_suspect: { ...expected.prime_suspect!, hypothesis_id: "H1" },
     hypotheses: expected.hypotheses.map((hypothesis) =>
       hypothesis.id === "H1" ? { ...hypothesis, status: "active", killed_by: null, resurrection_condition: null } : hypothesis,
     ),

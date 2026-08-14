@@ -85,6 +85,8 @@
     { "id": "M1", "description": "Payment-service certificate validity timestamps for 23:10-23:40.", "criticality": "critical", "impact_if_found": "An expired or invalid certificate favors H3; a valid certificate weakens H3 and reopens H1.", "related_hypothesis_ids": ["H1", "H3"] },
     { "id": "M2", "description": "Request traces showing whether the deployed checkout binary produced the failing requests after rollback.", "criticality": "useful", "impact_if_found": "Traces tied to the deploy favor H1; traces showing payment TLS failures independent of version favor H3.", "related_hypothesis_ids": ["H1", "H3"] }
   ],
+  "root_cause_status": "determined",
+  "undetermined_explanation": null,
   "prime_suspect": {
     "hypothesis_id": "H3",
     "justification": "H3 explains the TLS handshake failures, the absent 23:05 renewal confirmation, and recovery after the 23:38 retry sweep; it does not yet have certificate timestamps proving invalidity.",

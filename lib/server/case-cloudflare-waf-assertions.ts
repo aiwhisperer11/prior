@@ -21,9 +21,8 @@ export function evaluateCaseCloudflareWaf(
 ): CaseCloudflareWafAssertion[] {
   const attack = hypothesisFor(investigation, /attack|ddos|denial.of.service/i);
   const wafRegex = hypothesisFor(investigation, /regex|regular expression|waf|cpu/i);
-  const primeSuspect = investigation.hypotheses.find(
-    (hypothesis) => hypothesis.id === investigation.prime_suspect.hypothesis_id,
-  );
+  const primeSuspectId = investigation.prime_suspect?.hypothesis_id ?? null;
+  const primeSuspect = investigation.hypotheses.find((hypothesis) => hypothesis.id === primeSuspectId);
   const missingCpuTestAbsence = investigation.expectation_matrix.expected_absent.find(
     (item) => /cpu/i.test(item.description) && /test|protection|limit/i.test(item.description),
   );
@@ -34,9 +33,14 @@ export function evaluateCaseCloudflareWaf(
   return [
     ...sharedAssertions(request, investigation),
     {
+      name: "Root cause status is determined, with a real prime suspect",
+      passed: investigation.root_cause_status === "determined" && investigation.prime_suspect !== null,
+      detail: `root_cause_status is ${investigation.root_cause_status}; prime_suspect is ${primeSuspectId ?? "null"}.`,
+    },
+    {
       name: "Attack hypothesis is not selected on early speculation alone",
-      passed: Boolean(attack && attack.id !== investigation.prime_suspect.hypothesis_id && attack.status !== "active"),
-      detail: attack ? `Attack hypothesis status is ${attack.status}; prime suspect is ${investigation.prime_suspect.hypothesis_id}.` : "No attack hypothesis was returned.",
+      passed: Boolean(attack && attack.id !== primeSuspectId && attack.status !== "active"),
+      detail: attack ? `Attack hypothesis status is ${attack.status}; prime suspect is ${primeSuspectId ?? "none"}.` : "No attack hypothesis was returned.",
     },
     {
       name: "Attack hypothesis is weakened or rejected by the CPU-profiling evidence",
@@ -55,7 +59,7 @@ export function evaluateCaseCloudflareWaf(
     },
     {
       name: "Prime suspect hypothesis exists and is not the attack hypothesis",
-      passed: Boolean(wafRegex && wafRegex.id === investigation.prime_suspect.hypothesis_id),
+      passed: Boolean(wafRegex && wafRegex.id === primeSuspectId),
       detail: wafRegex ? `WAF/regex hypothesis ${wafRegex.id} has status ${wafRegex.status}.` : "No WAF/regex hypothesis was returned.",
     },
   ];
