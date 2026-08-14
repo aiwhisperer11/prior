@@ -1,12 +1,12 @@
 # CockroachDB Managed MCP Server — target integration contract
 
-**STATUS: documented, not live-verified.** This sandbox has no CockroachDB Cloud
-account, no `https://cockroachlabs.cloud/mcp` connectivity, and no OAuth/service-
-account credentials. `lib/server/memory-store-mcp-adapter.ts` implements the
-`SemanticMemoryStore` interface against this contract but fails loudly (throws
-"MCP Server not configured in this environment") rather than pretending to
-succeed. Nothing here should be read as "the MCP integration works" — it's the
-adapter this project would need to finish wiring given real access.
+**STATUS: Interactive read-only verification: VERIFIED 2026-08-14. Runtime
+application integration: PENDING.** `lib/server/memory-store-mcp-adapter.ts`
+implements the `SemanticMemoryStore` interface against this contract but fails
+loudly (throws "MCP Server not configured in this environment") rather than
+pretending to succeed. Nothing here should be read as "the MCP integration
+works" — it's the adapter this project would need to finish wiring given real
+access.
 
 ## Source
 
@@ -15,6 +15,11 @@ Facts below are drawn directly from Cockroach Labs' own announcement,
 (fetched 2026-08-12). The article does not enumerate a full tool catalog or show
 a sample request/response payload — where it doesn't specify something, this
 document says so rather than inventing it.
+
+Interactive read-only verification was performed on `2026-08-14` against the
+`prior-dev` cluster using read-only MCP access plus an independent direct-`pg`
+cross-check. See `docs/verification/cockroachdb-mcp-2026-08-14.md` for the
+sanitized artifact. Runtime application integration is still pending.
 
 ## What's real, per Cockroach Labs
 
