@@ -1,9 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getMemoryStore, MemoryStoreUnavailableError } from "@/lib/server/memory-store";
+import { AuditIntegrityError, AuditStorageUnavailableError } from "@/lib/server/audit-storage";
+import { getMemoryStore, MemoryStoreUnavailableError, OrphanedAuditArtifactError } from "@/lib/server/memory-store";
 import { runInvestigationFlow } from "@/lib/server/investigation-flow";
 import { prepareInvestigationRequest } from "@/lib/server/sherlock-engine";
 import { isEvidenceScoutCaseRequest, scoutCase } from "@/lib/server/evidence-scout";
+
+/**
+ * Maps a failure from getMemoryStore()/runInvestigationFlow() to a clear,
+ * operational API error. Distinguishes audit-storage failures from
+ * CockroachDB failures and from OpenAI failures — never lumps an S3 problem
+ * under "OpenAI client is unavailable". An orphaned artifact (S3 succeeded,
+ * CockroachDB failed afterward) is reported distinctly so it can be
+ * reconciled, never as silent success and never conflated with a normal
+ * operational failure.
+ */
+function auditOrMemoryErrorResponse(error: unknown): Response | null {
+  if (error instanceof MemoryStoreUnavailableError) return NextResponse.json({ error: "CockroachDB memory store is unavailable" }, { status: 503 });
+  if (error instanceof OrphanedAuditArtifactError) {
+    return NextResponse.json(
+      { error: "The investigation was not persisted after its audit artifact was already written; reconciliation is required.", artifact_key: error.artifactKey, artifact_sha256: error.artifactSha256 },
+      { status: 500 },
+    );
+  }
+  if (error instanceof AuditIntegrityError) return NextResponse.json({ error: error.message }, { status: 409 });
+  if (error instanceof AuditStorageUnavailableError) return NextResponse.json({ error: "Audit artifact storage is unavailable" }, { status: 503 });
+  return null;
+}
 
 export { OPENAI_MODEL } from "@/lib/server/sherlock-engine";
 
@@ -32,7 +55,9 @@ export async function POST(req: NextRequest) {
   try {
     memoryStore = getMemoryStore();
   } catch (error) {
-    if (error instanceof MemoryStoreUnavailableError) return NextResponse.json({ error: "CockroachDB memory store is unavailable" }, { status: 503 });
+    const response = auditOrMemoryErrorResponse(error);
+    if (response) return response;
+    if (error instanceof Error) return NextResponse.json({ error: error.message }, { status: 503 });
     throw error;
   }
 
@@ -71,7 +96,8 @@ export async function POST(req: NextRequest) {
   try {
     result = await runInvestigationFlow(prepared.request, memoryStore, undefined, scout);
   } catch (error) {
-    if (error instanceof MemoryStoreUnavailableError) return NextResponse.json({ error: "CockroachDB memory store is unavailable" }, { status: 503 });
+    const response = auditOrMemoryErrorResponse(error);
+    if (response) return response;
     return NextResponse.json({ error: "OpenAI client is unavailable" }, { status: 502 });
   }
 

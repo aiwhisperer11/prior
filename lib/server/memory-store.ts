@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { Pool, type PoolConfig } from "pg";
 
+import { buildAuditArtifactEnvelope, buildAuditArtifactKey, computeArtifactSha256, serializeAuditArtifact, type RetrievedMemoryForAudit } from "@/lib/server/audit-artifact";
+import { AuditIntegrityError, AuditStorageUnavailableError, S3AuditStorage, getAuditStorage, type AuditStorage } from "@/lib/server/audit-storage";
 import { embedText, l2Distance, type Embedder } from "@/lib/server/embeddings";
 import { OPENAI_MODEL } from "@/lib/server/sherlock-engine";
 import { canonicalize } from "@/lib/server/v2-snapshot-store";
@@ -31,6 +33,8 @@ export interface PrecedentLead {
 export interface StoredInvestigation {
   investigation: SherlockInvestigation;
   isMock: boolean;
+  /** Memory retrieved for this investigation and how it was classified (related/longitudinal/suspected-duplicate/unclassified) — embedded in the audit artifact envelope when the store writes one. Omitted entirely (not just empty) when the caller has no classification to report. */
+  retrievedMemory?: RetrievedMemoryForAudit;
 }
 
 export interface LatestCaseSnapshot {
@@ -42,6 +46,37 @@ export interface LatestCaseSnapshot {
   promptVersion: string;
   embeddingModel: string;
   snapshot: SherlockInvestigation;
+  /**
+   * Null exactly together, never independently: every row written before
+   * this feature existed, and every row saved through LocalMemoryStore's dev
+   * fallback (never wired to audit storage), honestly has none of these.
+   * Never inferred as "verified" from anything else — a value here can only
+   * exist because CockroachDBMemoryStore.save() already verified the
+   * artifact in audit storage before persisting the row.
+   */
+  auditArtifactKey: string | null;
+  auditArtifactSha256: string | null;
+  /** Persisted per row at write time (not derived from the current store's configuration) — the backend that actually wrote this specific artifact. */
+  auditStorageBackend: "local" | "s3" | null;
+  /** The exact S3 object version this artifact was written as, when the bucket reports one. Always null for the "local" backend and for a bucket without versioning enabled. */
+  auditArtifactVersionId: string | null;
+  /** Server-stamped timestamp of when the write path finished verifying the artifact — not when the row was inserted. */
+  auditArtifactVerifiedAt: string | null;
+}
+
+/**
+ * A CockroachDB write failed after its audit artifact was already durably
+ * written and verified in S3 (or local dev storage). The object is never
+ * deleted (S3AuditStorage has no delete capability, by design — see
+ * docs/aws-s3-audit-storage.md) and the investigation is never reported as
+ * persisted. Callers must surface this distinctly: it is an orphaned,
+ * reconcilable artifact, not a generic operational failure and not silent
+ * success.
+ */
+export class OrphanedAuditArtifactError extends Error {
+  constructor(public readonly artifactKey: string, public readonly artifactSha256: string, cause: unknown) {
+    super(`The audit artifact for this investigation was durably written (key: ${artifactKey}) but the CockroachDB snapshot write failed afterward. The object was not deleted; it requires manual reconciliation.`, { cause });
+  }
 }
 
 export interface InvestigationMemoryStore {
@@ -170,6 +205,14 @@ export class LocalMemoryStore implements SemanticMemoryStore {
       promptVersion: PROMPT_VERSION,
       embeddingModel: latest.embeddingModel,
       snapshot: latest.investigation,
+      // LocalMemoryStore is the ephemeral dev fallback and is never wired to
+      // audit storage (see docs/aws-s3-audit-storage.md); rows saved through
+      // it honestly never had an artifact, in dev exactly as in production.
+      auditArtifactKey: null,
+      auditArtifactSha256: null,
+      auditStorageBackend: null,
+      auditArtifactVersionId: null,
+      auditArtifactVerifiedAt: null,
     };
   }
 
@@ -213,7 +256,19 @@ export class LocalMemoryStore implements SemanticMemoryStore {
 }
 
 export class CockroachDBMemoryStore implements SemanticMemoryStore {
-  constructor(private readonly pool: Pool, private readonly embedder: Embedder = (text) => embedText(text)) {}
+  private readonly auditStorageBackendLabel: "local" | "s3";
+
+  /**
+   * auditStorage has no default (unlike embedder): it is the one dependency
+   * this store must never silently resolve from ambient environment state,
+   * because doing so could make a test — or a stray call site — reach a
+   * real S3 bucket depending on whatever AUDIT_STORAGE_BACKEND happens to be
+   * set in the process's environment. Every call site, including
+   * getMemoryStore() and every test, passes it explicitly.
+   */
+  constructor(private readonly pool: Pool, private readonly auditStorage: AuditStorage, private readonly embedder: Embedder = (text) => embedText(text)) {
+    this.auditStorageBackendLabel = auditStorage instanceof S3AuditStorage ? "s3" : "local";
+  }
 
   async findPrecedents(domain: string, excludeCaseId: string): Promise<PrecedentLead[]> {
     try {
@@ -284,8 +339,11 @@ export class CockroachDBMemoryStore implements SemanticMemoryStore {
       const result = await this.pool.query<{
         id: string; investigation_id: string; parent_snapshot_id: string | null;
         source_id: string; model_version: string; prompt_version: string; embedding_model: string; snapshot: SherlockInvestigation;
+        audit_artifact_key: string | null; audit_artifact_sha256: string | null;
+        audit_artifact_backend: "local" | "s3" | null; audit_artifact_version_id: string | null; audit_artifact_verified_at: string | null;
       }>(
-        `SELECT id, investigation_id, parent_snapshot_id, source_id, model_version, prompt_version, embedding_model, snapshot
+        `SELECT id, investigation_id, parent_snapshot_id, source_id, model_version, prompt_version, embedding_model, snapshot,
+                audit_artifact_key, audit_artifact_sha256, audit_artifact_backend, audit_artifact_version_id, audit_artifact_verified_at
          FROM investigation_memory WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1`,
         [caseId],
       );
@@ -300,27 +358,84 @@ export class CockroachDBMemoryStore implements SemanticMemoryStore {
         promptVersion: row.prompt_version,
         embeddingModel: row.embedding_model,
         snapshot: row.snapshot,
+        auditArtifactKey: row.audit_artifact_key,
+        auditArtifactSha256: row.audit_artifact_sha256,
+        // Read from the row itself (persisted per-write), not derived from
+        // this store instance's current configuration — accurate even if
+        // AUDIT_STORAGE_BACKEND changes between the row's write and this read.
+        auditStorageBackend: row.audit_artifact_backend,
+        auditArtifactVersionId: row.audit_artifact_version_id,
+        auditArtifactVerifiedAt: row.audit_artifact_verified_at,
       };
     } catch (error) { throw new MemoryStoreUnavailableError(error); }
   }
 
-  async save({ investigation, isMock }: StoredInvestigation): Promise<void> {
+  /**
+   * Ordering is deliberate and load-bearing (see docs/aws-s3-audit-storage.md):
+   * 1. build the audit artifact + sha256, entirely app-side, before any I/O;
+   * 2. write and independently verify it in audit storage (S3 or local dev);
+   * 3. persist the CockroachDB snapshot, including the artifact's key/hash.
+   *
+   * There is no distributed transaction across S3 and CockroachDB. If step 2
+   * fails, nothing is persisted and nothing is reported as complete — no
+   * silent fallback to local storage, no CockroachDB row written. If step 3
+   * fails after step 2 already succeeded, the artifact is NOT deleted (this
+   * store has no delete capability, by design) and the failure is reported
+   * as OrphanedAuditArtifactError: an orphaned S3 object is auditable and
+   * reconcilable by a human; a CockroachDB row claiming an artifact exists
+   * when it does not would be worse.
+   */
+  async save({ investigation, isMock, retrievedMemory }: StoredInvestigation): Promise<void> {
+    const prior = await this.findLatestForCase(investigation.meta.case_id);
+    const sourceId = computeSourceId(investigation.meta.case_id, investigation.meta.iteration, investigation);
+    const investigationId = prior?.investigationId ?? randomUUID();
+    const snapshotId = randomUUID();
+    const parentSnapshotId = parentForNewSnapshot(investigation.meta.iteration, prior);
+
+    const envelope = buildAuditArtifactEnvelope({
+      investigation,
+      investigationId,
+      snapshotId,
+      parentSnapshotId,
+      modelVersion: OPENAI_MODEL,
+      promptVersion: PROMPT_VERSION,
+      retrievedMemory: retrievedMemory ?? { related: [], longitudinal: [], suspectedDuplicates: [], unclassified: [] },
+    });
+    const serialized = serializeAuditArtifact(envelope);
+    const sha256 = computeArtifactSha256(serialized);
+    const key = buildAuditArtifactKey(investigation.meta.case_id, investigationId, snapshotId);
+
+    let artifact;
     try {
-      const sourceId = computeSourceId(investigation.meta.case_id, investigation.meta.iteration, investigation);
-      const prior = await this.findLatestForCase(investigation.meta.case_id);
+      artifact = await this.auditStorage.putImmutable(key, serialized, "application/json");
+    } catch (error) {
+      if (error instanceof AuditIntegrityError || error instanceof AuditStorageUnavailableError) throw error;
+      throw new AuditStorageUnavailableError(`Audit artifact ${key}: unexpected failure writing to audit storage.`, error);
+    }
+    // Defensive cross-check against the hash computed independently, here,
+    // before the call: never trust putImmutable's returned hash on its own,
+    // even though every AuditStorage implementation in this codebase already
+    // verifies it internally.
+    if (artifact.sha256 !== sha256) throw new AuditIntegrityError(`Audit artifact ${key}: audit storage returned sha256 ${artifact.sha256}, expected ${sha256}.`);
+
+    try {
       const { vector, model } = await this.embedder(investigationEmbeddingText(investigation));
       await this.pool.query(
         `INSERT INTO investigation_memory
            (case_id, case_title, domain, iteration, is_mock, snapshot,
-            investigation_id, parent_snapshot_id, source_id, model_version, prompt_version, embedding, embedding_model)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13)
+            investigation_id, parent_snapshot_id, source_id, model_version, prompt_version, embedding, embedding_model,
+            id, audit_artifact_key, audit_artifact_sha256, audit_artifact_backend, audit_artifact_version_id, audit_artifact_verified_at)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
          ON CONFLICT (source_id) WHERE source_id != '' DO NOTHING`,
         [
           investigation.meta.case_id, investigation.meta.case_title, investigation.meta.domain, investigation.meta.iteration, isMock, JSON.stringify(investigation),
-          prior?.investigationId ?? randomUUID(), parentForNewSnapshot(investigation.meta.iteration, prior), sourceId, OPENAI_MODEL, PROMPT_VERSION, JSON.stringify(vector), model,
+          investigationId, parentSnapshotId, sourceId, OPENAI_MODEL, PROMPT_VERSION, JSON.stringify(vector), model,
+          snapshotId, artifact.key, artifact.sha256, this.auditStorageBackendLabel, artifact.versionId, artifact.verifiedAt,
         ],
       );
-    } catch (error) { throw new MemoryStoreUnavailableError(error); }
+    } catch (error) {
+      throw new OrphanedAuditArtifactError(artifact.key, artifact.sha256, error);
+    }
   }
 }
 
@@ -345,6 +460,6 @@ export function cockroachPoolOptions(databaseUrl: string): PoolConfig {
 export function getMemoryStore(): SemanticMemoryStore {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) return stores.__priorLocalStore ??= new LocalMemoryStore();
-  if (!stores.__priorCockroachStore) stores.__priorCockroachStore = new CockroachDBMemoryStore(new Pool(cockroachPoolOptions(databaseUrl)));
+  if (!stores.__priorCockroachStore) stores.__priorCockroachStore = new CockroachDBMemoryStore(new Pool(cockroachPoolOptions(databaseUrl)), getAuditStorage());
   return stores.__priorCockroachStore;
 }

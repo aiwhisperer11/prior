@@ -13,20 +13,21 @@
     "eval:case-google-secops": "tsx scripts/eval-case-google-secops.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1111.0",
     "ajv": "^8.18.0",
     "next": "16.2.10",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
     "openai": "^6.48.0",
     "pg": "^8.16.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.15.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/pg": "^8.15.5",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",

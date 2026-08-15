@@ -26,6 +26,8 @@ export interface CurrentCaseIdentity extends CaseIdentityFields { caseId: string
 
 export const SUSPECTED_DUPLICATE_REASON = "different case_id with matching canonical case fingerprint";
 
+export type AuditVerificationStatus = "verified" | "not_available";
+
 export interface MemoryLineageView {
   snapshotId: string;
   investigationId: string;
@@ -34,6 +36,16 @@ export interface MemoryLineageView {
   modelVersion: string;
   promptVersion: string;
   embeddingModel: string;
+  /** All null together, never independently — every row written before this feature existed, and every LocalMemoryStore dev-fallback row, honestly has none of these. Never inferred as verified from anything else. */
+  auditArtifactKey: string | null;
+  auditArtifactSha256: string | null;
+  auditStorageBackend: "local" | "s3" | null;
+  /** The exact S3 object version, when the bucket reports one. Always null for backend "local". */
+  auditArtifactVersionId: string | null;
+  /** When the write path finished verifying the artifact — not the row's created_at. */
+  auditArtifactVerifiedAt: string | null;
+  /** Derived, never persisted: "verified" only when key/hash/backend/verifiedAt are all present — a key can only exist in the database because CockroachDBMemoryStore.save() already verified the artifact in audit storage before persisting. A historical row without one honestly reports "not_available", never "verified". */
+  auditVerificationStatus: AuditVerificationStatus;
 }
 
 export interface InvestigationApiResponse {
@@ -140,6 +152,11 @@ function parseMemory(value: unknown): MemoryLineageView | null {
     typeof record.promptVersion !== "string" ||
     typeof record.embeddingModel !== "string"
   ) return null;
+  const auditArtifactKey = typeof record.auditArtifactKey === "string" ? record.auditArtifactKey : null;
+  const auditArtifactSha256 = typeof record.auditArtifactSha256 === "string" ? record.auditArtifactSha256 : null;
+  const auditStorageBackend = record.auditStorageBackend === "s3" || record.auditStorageBackend === "local" ? record.auditStorageBackend : null;
+  const auditArtifactVersionId = typeof record.auditArtifactVersionId === "string" ? record.auditArtifactVersionId : null;
+  const auditArtifactVerifiedAt = typeof record.auditArtifactVerifiedAt === "string" ? record.auditArtifactVerifiedAt : null;
   return {
     snapshotId: record.snapshotId,
     investigationId: record.investigationId,
@@ -148,6 +165,14 @@ function parseMemory(value: unknown): MemoryLineageView | null {
     modelVersion: record.modelVersion,
     promptVersion: record.promptVersion,
     embeddingModel: record.embeddingModel,
+    auditArtifactKey,
+    auditArtifactSha256,
+    auditStorageBackend,
+    auditArtifactVersionId,
+    auditArtifactVerifiedAt,
+    // Derived from presence, never trusted from the wire directly: a key can
+    // only exist because the write path already verified it before persisting.
+    auditVerificationStatus: auditArtifactKey && auditArtifactSha256 && auditStorageBackend && auditArtifactVerifiedAt ? "verified" : "not_available",
   };
 }
 
