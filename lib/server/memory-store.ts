@@ -13,6 +13,8 @@ export interface PrecedentLead {
   investigationId?: string;
   snapshotId?: string;
   sourceId?: string;
+  iteration?: number;
+  createdAt?: string;
   caseTitle: string;
   domain: string;
   summary: string;
@@ -94,8 +96,30 @@ interface LocalRecord {
   investigationId: string;
   snapshotId: string;
   parentSnapshotId: string | null;
+  createdAt: string;
   embedding: number[];
   embeddingModel: string;
+}
+
+function compareLeadRecency(a: Pick<PrecedentLead, "iteration" | "createdAt" | "snapshotId">, b: Pick<PrecedentLead, "iteration" | "createdAt" | "snapshotId">): number {
+  const iterationDelta = (a.iteration ?? Number.NEGATIVE_INFINITY) - (b.iteration ?? Number.NEGATIVE_INFINITY);
+  if (iterationDelta !== 0) return iterationDelta;
+  const createdAtDelta = Date.parse(a.createdAt ?? "") - Date.parse(b.createdAt ?? "");
+  if (!Number.isNaN(createdAtDelta) && createdAtDelta !== 0) return createdAtDelta;
+  return (a.snapshotId ?? "").localeCompare(b.snapshotId ?? "");
+}
+
+function latestRecordPerCaseId(records: LocalRecord[]): LocalRecord[] {
+  const deduped = new Map<string, LocalRecord>();
+  for (const record of records) {
+    const existing = deduped.get(record.investigation.meta.case_id);
+    if (!existing || compareLeadRecency(localRecordRecency(record), localRecordRecency(existing)) > 0) deduped.set(record.investigation.meta.case_id, record);
+  }
+  return [...deduped.values()];
+}
+
+function localRecordRecency(record: LocalRecord): Pick<PrecedentLead, "iteration" | "createdAt" | "snapshotId"> {
+  return { iteration: record.investigation.meta.iteration, createdAt: record.createdAt, snapshotId: record.snapshotId };
 }
 
 /**
@@ -112,16 +136,21 @@ export class LocalMemoryStore implements SemanticMemoryStore {
   constructor(private readonly embedder: Embedder = (text) => embedText(text)) {}
 
   async findPrecedents(domain: string, excludeCaseId: string): Promise<PrecedentLead[]> {
-    return this.records
+    return latestRecordPerCaseId(
+      this.records
       .filter((record) => record.investigation.meta.domain === domain && record.investigation.meta.case_id !== excludeCaseId)
-      .slice(-3)
+    )
+      .sort((a, b) => compareLeadRecency(localRecordRecency(b), localRecordRecency(a)))
+      .slice(0, 3)
       .map((record) => this.toPrecedentLead(record));
   }
 
   async findSemanticPrecedents(request: InvestigationRequest, excludeCaseId: string, limit = 3): Promise<PrecedentLead[]> {
     const { vector } = await this.embedder(requestEmbeddingText(request));
-    return this.records
+    return latestRecordPerCaseId(
+      this.records
       .filter((record) => record.investigation.meta.case_id !== excludeCaseId)
+    )
       .map((record) => ({ record, distance: l2Distance(vector, record.embedding) }))
       .sort((a, b) => a.distance - b.distance)
       .slice(0, limit)
@@ -155,6 +184,7 @@ export class LocalMemoryStore implements SemanticMemoryStore {
       investigationId: prior?.investigationId ?? randomUUID(),
       snapshotId: randomUUID(),
       parentSnapshotId: parentForNewSnapshot(investigation.meta.iteration, prior),
+      createdAt: new Date().toISOString(),
       embedding: vector,
       embeddingModel: model,
     });
@@ -166,6 +196,8 @@ export class LocalMemoryStore implements SemanticMemoryStore {
       investigationId: record.investigationId,
       snapshotId: record.snapshotId,
       sourceId: record.sourceId,
+      iteration: record.investigation.meta.iteration,
+      createdAt: record.createdAt,
       caseTitle: record.investigation.meta.case_title,
       domain: record.investigation.meta.domain,
       summary: record.investigation.learning.summary,
@@ -185,13 +217,23 @@ export class CockroachDBMemoryStore implements SemanticMemoryStore {
 
   async findPrecedents(domain: string, excludeCaseId: string): Promise<PrecedentLead[]> {
     try {
-      const result = await this.pool.query<{ case_id: string; investigation_id: string; snapshot_id: string; source_id: string; case_title: string; domain: string; summary: string; observed_outcome: string; expected_behavior: string }>(
-        `SELECT case_id, investigation_id, id AS snapshot_id, source_id, case_title, domain, snapshot->'learning'->>'summary' AS summary,
-                snapshot->'case'->>'observed_outcome' AS observed_outcome, snapshot->'case'->>'expected_behavior' AS expected_behavior
-         FROM investigation_memory WHERE domain = $1 AND case_id <> $2
-         ORDER BY created_at DESC LIMIT 3`, [domain, excludeCaseId],
+      const result = await this.pool.query<{ case_id: string; investigation_id: string; snapshot_id: string; source_id: string; case_title: string; domain: string; summary: string; observed_outcome: string; expected_behavior: string; iteration: number; created_at: string }>(
+        `WITH latest_per_case AS (
+           SELECT case_id, investigation_id, id AS snapshot_id, source_id, case_title, domain, iteration, created_at,
+                  snapshot->'learning'->>'summary' AS summary,
+                  snapshot->'case'->>'observed_outcome' AS observed_outcome,
+                  snapshot->'case'->>'expected_behavior' AS expected_behavior,
+                  ROW_NUMBER() OVER (PARTITION BY case_id ORDER BY iteration DESC, created_at DESC, id DESC) AS snapshot_rank
+           FROM investigation_memory
+           WHERE domain = $1 AND case_id <> $2
+         )
+         SELECT case_id, investigation_id, snapshot_id, source_id, case_title, domain, summary, observed_outcome, expected_behavior, iteration, created_at
+         FROM latest_per_case
+         WHERE snapshot_rank = 1
+         ORDER BY created_at DESC, iteration DESC, snapshot_id DESC
+         LIMIT 3`, [domain, excludeCaseId],
       );
-      return result.rows.map((row) => ({ caseId: row.case_id, investigationId: row.investigation_id, snapshotId: row.snapshot_id, sourceId: row.source_id, caseTitle: row.case_title, domain: row.domain, summary: row.summary, observedOutcome: row.observed_outcome, expectedBehavior: row.expected_behavior, isMock: false }));
+      return result.rows.map((row) => ({ caseId: row.case_id, investigationId: row.investigation_id, snapshotId: row.snapshot_id, sourceId: row.source_id, iteration: row.iteration, createdAt: row.created_at, caseTitle: row.case_title, domain: row.domain, summary: row.summary, observedOutcome: row.observed_outcome, expectedBehavior: row.expected_behavior, isMock: false }));
     } catch (error) { throw new MemoryStoreUnavailableError(error); }
   }
 
@@ -199,11 +241,23 @@ export class CockroachDBMemoryStore implements SemanticMemoryStore {
   async findSemanticPrecedents(request: InvestigationRequest, excludeCaseId: string, limit = 3): Promise<PrecedentLead[]> {
     try {
       const { vector } = await this.embedder(requestEmbeddingText(request));
-      const result = await this.pool.query<{ case_id: string; investigation_id: string; snapshot_id: string; source_id: string; case_title: string; domain: string; summary: string; observed_outcome: string; expected_behavior: string; distance: number }>(
-        `SELECT case_id, investigation_id, id AS snapshot_id, source_id, case_title, domain, snapshot->'learning'->>'summary' AS summary,
-                snapshot->'case'->>'observed_outcome' AS observed_outcome, snapshot->'case'->>'expected_behavior' AS expected_behavior, embedding <-> $1 AS distance
-         FROM investigation_memory WHERE case_id <> $2 AND embedding IS NOT NULL
-         ORDER BY embedding <-> $1 LIMIT $3`,
+      const result = await this.pool.query<{ case_id: string; investigation_id: string; snapshot_id: string; source_id: string; case_title: string; domain: string; summary: string; observed_outcome: string; expected_behavior: string; distance: number; iteration: number; created_at: string }>(
+        `WITH latest_per_case AS (
+           SELECT case_id, investigation_id, id AS snapshot_id, source_id, case_title, domain, iteration, created_at,
+                  snapshot->'learning'->>'summary' AS summary,
+                  snapshot->'case'->>'observed_outcome' AS observed_outcome,
+                  snapshot->'case'->>'expected_behavior' AS expected_behavior,
+                  embedding,
+                  ROW_NUMBER() OVER (PARTITION BY case_id ORDER BY iteration DESC, created_at DESC, id DESC) AS snapshot_rank
+           FROM investigation_memory
+           WHERE case_id <> $2 AND embedding IS NOT NULL
+         )
+         SELECT case_id, investigation_id, snapshot_id, source_id, case_title, domain, summary, observed_outcome, expected_behavior, iteration, created_at,
+                embedding <-> $1 AS distance
+         FROM latest_per_case
+         WHERE snapshot_rank = 1
+         ORDER BY embedding <-> $1
+         LIMIT $3`,
         [JSON.stringify(vector), excludeCaseId, limit],
       );
       return result.rows.map((row) => ({
@@ -211,6 +265,8 @@ export class CockroachDBMemoryStore implements SemanticMemoryStore {
         investigationId: row.investigation_id,
         snapshotId: row.snapshot_id,
         sourceId: row.source_id,
+        iteration: row.iteration,
+        createdAt: row.created_at,
         caseTitle: row.case_title,
         domain: row.domain,
         summary: row.summary,

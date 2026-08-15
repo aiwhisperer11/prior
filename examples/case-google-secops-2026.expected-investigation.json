@@ -57,15 +57,7 @@
         "related_hypothesis_ids": []
       }
     ],
-    "unexpected_absent": [
-      {
-        "id": "X5",
-        "description": "None of the candidate mechanism hypotheses (backlog/capacity, defective deploy, shared dependency) has internal confirming or disconfirming data available in the public record.",
-        "evidence_ids": [],
-        "significance": "Each mechanism hypothesis predicts internal data that would confirm or refute it; the absence of any such data for any of them is why none can be elevated above the others from public evidence alone.",
-        "related_hypothesis_ids": ["H1", "H2", "H3"]
-      }
-    ]
+    "unexpected_absent": []
   },
   "anomalies": [
     {
@@ -96,7 +88,7 @@
         { "evidence_id": "E3", "reason": "E3 describes inconsistent aggregate results over an approximately 20-hour window, a pattern consistent with an ingestion backlog gradually falling behind and being worked down." }
       ],
       "contradicted_by": [],
-      "expected_but_absent_ids": ["M1"],
+      "expected_but_absent_ids": [],
       "would_be_refuted_by": "Internal ingestion backlog or queue-depth metrics for the incident window showing no backlog buildup at any point.",
       "killed_by": null,
       "resurrection_condition": null
@@ -111,7 +103,7 @@
         { "evidence_id": "E5", "reason": "E5 records the symptom scope expanding simultaneously to Search, Stats Search, and Rule re-evaluation together, consistent with a single shared-code change affecting all three services at once." }
       ],
       "contradicted_by": [],
-      "expected_but_absent_ids": ["M2"],
+      "expected_but_absent_ids": [],
       "would_be_refuted_by": "Google's deploy history showing no change was made to any of the three affected services in the relevant window.",
       "killed_by": null,
       "resurrection_condition": null
@@ -127,7 +119,7 @@
         { "evidence_id": "E6", "reason": "E6 shows the same three services recovering together on a region-by-region basis, consistent with a shared backend dependency being remediated region by region." }
       ],
       "contradicted_by": [],
-      "expected_but_absent_ids": ["M4"],
+      "expected_but_absent_ids": [],
       "would_be_refuted_by": "Internal health or incident logs for the shared backend components showing no correlated incident during the window.",
       "killed_by": null,
       "resurrection_condition": null

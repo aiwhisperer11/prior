@@ -44,7 +44,7 @@ test("the authoritative schema uses only explicitly reviewed stripped keywords",
 
   assert.deepEqual(
     encountered,
-    ["maximum", "minItems", "minimum"],
+    ["maximum", "minItems", "minimum", "pattern"],
     `A new strict-output keyword would be removed without review. Encountered: ${encountered.join(", ") || "none"}`,
   );
 });

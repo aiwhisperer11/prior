@@ -215,8 +215,8 @@
           },
           "expected_but_absent_ids": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "Ids of missing_evidence items this hypothesis SHOULD have produced. Non-empty means the hypothesis predicts effects that are not observed."
+            "items": { "type": "string", "pattern": "^X\\d+$" },
+            "description": "Ids of expectation_matrix.unexpected_absent items: predicted effects of this hypothesis that were actually checked against the supplied evidence and are demonstrably absent. Never a missing_evidence id (M-id) — data that was never available to check is uncertainty, not a falsified prediction, and belongs only in missing_evidence."
           },
           "would_be_refuted_by": {
             "type": "string",

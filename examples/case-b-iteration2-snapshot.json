@@ -242,9 +242,7 @@
           "reason": "E5 weakens H1 because it supplies a direct local certificate mechanism for the failure and recovery, rather than evidence that deployed checkout code itself failed."
         }
       ],
-      "expected_but_absent_ids": [
-        "M4"
-      ],
+      "expected_but_absent_ids": [],
       "id": "H1",
       "killed_by": null,
       "origin": "user",

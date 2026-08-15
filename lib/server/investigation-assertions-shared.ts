@@ -216,6 +216,49 @@ export function invalidNonDiscriminatingIds(investigation: SherlockInvestigation
   );
 }
 
+/**
+ * P3/P6: expected_but_absent_ids may reference only expectation_matrix.
+ * unexpected_absent items that name this hypothesis in related_hypothesis_ids
+ * — never a missing_evidence id (M#), evidence id (E#), anomaly id (A#),
+ * hypothesis id (H#), or a nonexistent/misplaced X id. A predicted effect
+ * that was never checkable (missing_evidence) is uncertainty, not a falsified
+ * prediction, and must never be modeled as one on a hypothesis.
+ */
+export function invalidExpectedButAbsentIds(
+  investigation: SherlockInvestigation,
+): Array<{ hypothesisId: string; id: string }> {
+  const unexpectedAbsentById = new Map(
+    investigation.expectation_matrix.unexpected_absent.map((item) => [item.id, item]),
+  );
+  const invalid: Array<{ hypothesisId: string; id: string }> = [];
+  for (const hypothesis of investigation.hypotheses) {
+    for (const id of hypothesis.expected_but_absent_ids) {
+      const item = unexpectedAbsentById.get(id);
+      if (!item || !item.related_hypothesis_ids.includes(hypothesis.id)) {
+        invalid.push({ hypothesisId: hypothesis.id, id });
+      }
+    }
+  }
+  return invalid;
+}
+
+/**
+ * P3: an unexpected_absent item claims a hypothesis's predicted effect is
+ * demonstrably absent. "Demonstrably" requires citing what was actually
+ * checked (evidence_ids); citing nothing is structurally indistinguishable
+ * from "this data was never available to check" — that is missing_evidence's
+ * job, not a falsified prediction. This is a structural requirement on the
+ * unexpected_absent quadrant specifically, not a text/keyword heuristic: it
+ * never inspects wording, so it cannot misfire on legitimate absence prose
+ * elsewhere (e.g. an expected_absent item's own wording is untouched, since
+ * that quadrant keeps its documented allowance for empty evidence_ids).
+ */
+export function ungroundedUnexpectedAbsentIds(investigation: SherlockInvestigation): string[] {
+  return investigation.expectation_matrix.unexpected_absent
+    .filter((item) => item.evidence_ids.length === 0)
+    .map((item) => item.id);
+}
+
 export function hypothesisFor(
   investigation: SherlockInvestigation,
   matcher: RegExp,

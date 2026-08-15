@@ -162,6 +162,8 @@ export interface NewEvidenceInput {
 
 export interface InvestigationIterationRequest extends InvestigationRequest {
   iteration: number;
+  /** Canonical, server-numbered evidence (never the model's echo of it). */
+  evidence: EvidenceItem[];
   previous_snapshot?: SherlockInvestigation;
   new_evidence?: EvidenceItem[];
   precedent_leads?: Array<{ caseId: string; caseTitle: string; domain: string; summary: string; isMock: boolean }>;

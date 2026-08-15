@@ -94,6 +94,29 @@ test("LocalMemoryStore.findSemanticPrecedents ranks by real L2 distance, nearest
   assert.match(results[0]!.whyRelevant!, /Semantically closest/);
 });
 
+test("LocalMemoryStore.findSemanticPrecedents collapses multiple snapshots of the same external case before applying the limit", async () => {
+  const store = new LocalMemoryStore(async (text) => {
+    if (text.includes("cloudflare old")) return { vector: [0.05, 0], model: "fake" };
+    if (text.includes("cloudflare new")) return { vector: [0.04, 0], model: "fake" };
+    if (text.includes("google debug")) return { vector: [0.03, 0], model: "fake" };
+    if (text.includes("other case")) return { vector: [0.02, 0], model: "fake" };
+    return { vector: [0, 0], model: "fake" };
+  });
+  await store.save({ investigation: investigation({ caseId: "case-cloudflare-waf-2019", summary: "cloudflare old" }), isMock: true });
+  await store.save({ investigation: investigation({ caseId: "case-cloudflare-waf-2019", iteration: 2, summary: "cloudflare new" }), isMock: true });
+  await store.save({ investigation: investigation({ caseId: "case-google-debug", summary: "google debug" }), isMock: true });
+  await store.save({ investigation: investigation({ caseId: "case-other", summary: "other case" }), isMock: true });
+
+  const results = await store.findSemanticPrecedents(
+    { case_id: "self", case_title: "query", domain: "test", observed_outcome: "o", expected_behavior: "e", evidence: [] },
+    "self",
+    2,
+  );
+
+  assert.deepEqual(results.map((item) => item.caseId), ["case-other", "case-google-debug"]);
+  assert.equal(results.filter((item) => item.caseId === "case-cloudflare-waf-2019").length, 0);
+});
+
 test("a previous iteration is longitudinal memory, never an external precedent for its own case", async () => {
   const store = new LocalMemoryStore(async (text) => ({ vector: [text.includes("external") ? 1 : 0, 0], model: "fake" }));
   const first = investigation({ caseId: "current-case", iteration: 1, summary: "current first" });
@@ -125,6 +148,8 @@ test("CockroachDBMemoryStore.findSemanticPrecedents issues the real vector-index
   );
 
   assert.match(calls[0]!.sql, /ORDER BY embedding <-> \$1/);
+  assert.match(calls[0]!.sql, /ROW_NUMBER\(\) OVER \(PARTITION BY case_id ORDER BY iteration DESC, created_at DESC, id DESC\) AS snapshot_rank/);
+  assert.match(calls[0]!.sql, /WHERE snapshot_rank = 1/);
   assert.match(calls[0]!.sql, /embedding IS NOT NULL/);
   assert.match(calls[0]!.sql, /case_id <> \$2/);
   assert.equal(calls[0]!.values[1], "current");

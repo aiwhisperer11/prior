@@ -8,6 +8,8 @@ export interface PrecedentLeadView {
   investigationId?: string;
   snapshotId?: string;
   sourceId?: string;
+  iteration?: number;
+  createdAt?: string;
   domain?: string;
   observedOutcome?: string;
   expectedBehavior?: string;
@@ -55,6 +57,28 @@ export interface ClassifiedMemoryLeads {
   unclassified: UnclassifiedLegacyMemoryView[];
 }
 
+function compareLeadRecency(a: Pick<PrecedentLeadView, "iteration" | "createdAt" | "snapshotId">, b: Pick<PrecedentLeadView, "iteration" | "createdAt" | "snapshotId">): number {
+  const iterationDelta = (a.iteration ?? Number.NEGATIVE_INFINITY) - (b.iteration ?? Number.NEGATIVE_INFINITY);
+  if (iterationDelta !== 0) return iterationDelta;
+  const createdAtDelta = Date.parse(a.createdAt ?? "") - Date.parse(b.createdAt ?? "");
+  if (!Number.isNaN(createdAtDelta) && createdAtDelta !== 0) return createdAtDelta;
+  return (a.snapshotId ?? "").localeCompare(b.snapshotId ?? "");
+}
+
+function collapseLatestLeadPerCaseId(leads: PrecedentLeadView[]): PrecedentLeadView[] {
+  const deduped = new Map<string, PrecedentLeadView>();
+  const passthrough: PrecedentLeadView[] = [];
+  for (const lead of leads) {
+    if (!lead.caseId) {
+      passthrough.push(lead);
+      continue;
+    }
+    const existing = deduped.get(lead.caseId);
+    if (!existing || compareLeadRecency(lead, existing) > 0) deduped.set(lead.caseId, lead);
+  }
+  return [...deduped.values(), ...passthrough];
+}
+
 /**
  * Presentation boundary: a case can never be its own external precedent
  * (longitudinal), and a different case_id whose canonical fingerprint
@@ -70,7 +94,7 @@ export function classifyMemoryLeads(leads: unknown[], currentCase: CurrentCaseId
   const suspectedDuplicates: SuspectedDuplicateView[] = [];
   const unclassified: UnclassifiedLegacyMemoryView[] = [];
   const currentFingerprint = computeCaseFingerprint(currentCase);
-  for (const lead of leads) {
+  for (const lead of collapseLatestLeadPerCaseId(leads.filter(isPrecedentLead))) {
     if (!isPrecedentLead(lead)) continue;
     if (!lead.caseId || !lead.investigationId || !lead.snapshotId || !lead.sourceId || !lead.domain) {
       unclassified.push({ caseTitle: lead.caseTitle, summary: lead.summary, reason: "missing canonical case_id or provenance identifiers" });
