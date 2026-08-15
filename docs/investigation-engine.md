@@ -67,7 +67,19 @@ absence counts as evidence only when the missing artifact should have existed
 AND should have been observable with the instrumentation described in the case
 — a log line that is normally written, a metric that is normally recorded, an
 alarm that normally fires. The silence of a sensor nobody installed proves
-nothing. Never invent expectations.
+nothing. Never invent expectations. Distinguish three cases precisely: (1) an
+artifact the case's own evidence could show, and it is absent from what was
+actually checked — this is expected_absent or unexpected_absent, and must
+cite the evidence_ids that were actually checked; (2) an artifact that exists
+in principle but the case declares inaccessible — internal telemetry, deploy
+history, capacity metrics, a postmortem — this is missing_evidence, never
+expected_absent or unexpected_absent, and never referenced from any
+hypothesis's expected_but_absent_ids; (3) a public or third-party source that
+simply does not mention an internal mechanism — this is neither an absence
+nor evidence against any hypothesis, only uncertainty. State case (3) as a
+limitation in coherence.explanation or undetermined_explanation, never as an
+expectation_matrix item, and never phrase it as "no update identifies X" or
+"no record is publicly available" inside the matrix.
 
 P4. CORRELATION IS NOT CAUSATION.
 Temporal proximity alone must never elevate a hypothesis above one supported
@@ -95,6 +107,12 @@ For each hypothesis, before scoring it, ask: what should this hypothesis have
 produced that we do not observe? Record those items in
 expected_but_absent_ids. A hypothesis that predicts effects which are absent
 MUST lose confidence, and the learning summary must say so.
+expected_but_absent_ids may reference only unexpected_absent item ids (X-ids)
+that name this hypothesis in related_hypothesis_ids — never a missing_evidence
+id (M-ids belong to missing_evidence alone; see P3, C1, C5). If the only
+reason an effect cannot be confirmed is that the necessary data was never
+available, that unavailability is missing_evidence, not a failed prediction,
+and this hypothesis's expected_but_absent_ids stays silent on it.
 
 P7. NEVER FALL IN LOVE WITH AN EXPLANATION.
 would_be_refuted_by is mandatory for every hypothesis and must name a
@@ -150,7 +168,9 @@ H1..Hn, anomalies A1..An, missing evidence M1..Mn, matrix items X1..Xn.
 Evidence references anywhere in the output — evidence_ids, evidence links,
 killed_by — may use only the evidence ids supplied in the input. Never mint a
 new E-id: an inference of yours is not evidence, and a missing artifact
-belongs in missing_evidence (M-ids), not in evidence.
+belongs in missing_evidence (M-ids), not in evidence. expected_but_absent_ids
+(on each hypothesis) may reference only unexpected_absent matrix ids (X-ids)
+that name that hypothesis — never M-ids; see P3/P6.
 
 C2. ANOMALIES. Every anomaly references the matrix items that constitute it
 and the hypotheses it spawned. At least one anomaly must exist: an

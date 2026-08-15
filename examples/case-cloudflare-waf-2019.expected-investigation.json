@@ -255,9 +255,7 @@
           "reason": "E10 weakens H3 relative to H2 because the removed runtime protection is the safeguard that would have applied at execution time regardless of test coverage, making it the more proximate cause pending M1."
         }
       ],
-      "expected_but_absent_ids": [
-        "M1"
-      ],
+      "expected_but_absent_ids": [],
       "would_be_refuted_by": "A controlled reproduction showing the reinstated runtime CPU-usage protection alone halts the pathological regex regardless of test coverage, which would make H3 unnecessary to explain the incident.",
       "killed_by": null,
       "resurrection_condition": null
@@ -281,7 +279,7 @@
         }
       ],
       "expected_but_absent_ids": [
-        "M3"
+        "X6"
       ],
       "would_be_refuted_by": "Traffic logs showing attacker-controlled or anomalous inbound request patterns during 13:42-14:09 UTC, independent of WAF rule CPU consumption.",
       "killed_by": "E6",

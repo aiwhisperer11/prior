@@ -81,6 +81,35 @@ test("real Google SecOps payload: debug duplicate is excluded from related and f
   assert.match(duplicate.summary, /\bH4\b/); // the stale H4 text the symptom was reported against
 });
 
+test("multiple snapshots of the same external case collapse to the latest and are not marked as suspected duplicates", () => {
+  const olderCloudflareLead = {
+    ...realCloudflareLead,
+    investigationId: "e30dc7f3-e07f-4958-9c1d-eed522331cb9",
+    snapshotId: "0638c25f-feeb-4e95-97bf-385120ceac81",
+    sourceId: "",
+    caseTitle: "Cloudflare global outage, 2 July 2019, 13:42-14:09 UTC",
+    summary: "older Cloudflare snapshot",
+    iteration: 1,
+    createdAt: "2026-08-12T09:52:19.467025Z",
+  };
+  const latestCloudflareLead = {
+    ...realCloudflareLead,
+    snapshotId: "fac9dc66-df1e-4a37-b2a9-747443a478f8",
+    sourceId: "b1f0f656bcc00b76b3871a3c2700eca1cf3917ab5c1b7f5ebd8e9e1d4e30f556",
+    caseTitle: "Cloudflare global WAF outage, 2 July 2019",
+    summary: "latest Cloudflare snapshot",
+    iteration: 1,
+    createdAt: "2026-08-14T15:17:34.481792Z",
+  };
+
+  const classified = classifyMemoryLeads([olderCloudflareLead, latestCloudflareLead, realDebugDuplicateLead], currentCase);
+
+  assert.deepEqual(classified.related.map((item) => item.caseId), ["case-cloudflare-waf-2019"]);
+  assert.deepEqual(classified.related.map((item) => item.snapshotId), ["fac9dc66-df1e-4a37-b2a9-747443a478f8"]);
+  assert.equal(classified.suspectedDuplicates.length, 1);
+  assert.deepEqual(classified.suspectedDuplicates.map((item) => item.caseId), ["case-google-secops-debug-1786535778822"]);
+});
+
 test("control: same title but a genuinely different outcome/source is not auto-declared a duplicate", () => {
   const sameTitleDifferentCase = {
     caseId: "case-google-secops-2027-recurrence",

@@ -28,7 +28,7 @@
       { "id": "X4", "description": "The expected 23:05 TLS renewal confirmation log line is absent.", "evidence_ids": [], "significance": "The declared normal behavior requires this log line; its absence supports a silent TLS renewal failure.", "related_hypothesis_ids": ["H3"] }
     ],
     "unexpected_absent": [
-      { "id": "X5", "description": "Errors did not stop within minutes of the 23:25 rollback, as a deploy-caused failure should have.", "evidence_ids": [], "significance": "The absent rollback effect weakens the deploy hypothesis.", "related_hypothesis_ids": ["H1"] }
+      { "id": "X5", "description": "Errors did not stop within minutes of the 23:25 rollback, as a deploy-caused failure should have.", "evidence_ids": ["E1"], "significance": "The absent rollback effect weakens the deploy hypothesis.", "related_hypothesis_ids": ["H1"] }
     ]
   },
   "anomalies": [
@@ -46,7 +46,7 @@
         { "evidence_id": "E1", "reason": "The rollback completed at 23:25 but did not reduce errors before they ceased at 23:40." },
         { "evidence_id": "E3", "reason": "TLS handshake failures identify a competing payment-path mechanism during the same window." }
       ],
-      "expected_but_absent_ids": ["M2"],
+      "expected_but_absent_ids": ["X5"],
       "would_be_refuted_by": "A request trace showing checkout failures from an unchanged pre-deploy binary during the incident window.",
       "killed_by": null,
       "resurrection_condition": null
