@@ -4,8 +4,8 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { deriveExecutiveSummary, executiveEvidenceIds, normalizeEvidenceLedger } from "../lib/investigation-presentation";
-import { classifyMemoryLeads } from "../lib/investigation-response";
-import { nextPresentationView } from "../components/InvestigationPresentation";
+import { classifyMemoryLeads, parseInvestigationApiResponse, type MemoryLineageView } from "../lib/investigation-response";
+import { auditArtifactVerificationLabel, nextPresentationView } from "../components/InvestigationPresentation";
 import SherlockInvestigationView from "../components/SherlockInvestigationView";
 import ExpectationMatrix from "../components/ExpectationMatrix";
 import type { FalsificationExpectationMatrix, SherlockInvestigation } from "../types/sherlock";
@@ -104,4 +104,78 @@ test("ExpectationMatrix omits the 'Why it matters' disclosure for an item with e
   const html = renderToStaticMarkup(createElement(ExpectationMatrix, { matrix }));
   const occurrences = html.match(/Why it matters/g) ?? [];
   assert.equal(occurrences.length, 1, "only the item with non-empty significance should render the disclosure");
+});
+
+test("auditArtifactVerificationLabel reports 'verified' only when key, sha256, backend, and verified_at are all present", () => {
+  const verifiedMemory: MemoryLineageView = {
+    snapshotId: "s", investigationId: "i", parentSnapshotId: null, sourceId: "src",
+    modelVersion: "m", promptVersion: "p", embeddingModel: "e",
+    auditArtifactKey: "investigations/case-x/i/s.json", auditArtifactSha256: "a".repeat(64),
+    auditStorageBackend: "s3", auditArtifactVersionId: "v1", auditArtifactVerifiedAt: "2026-08-15T00:00:00.000Z",
+    auditVerificationStatus: "verified",
+  };
+  assert.equal(auditArtifactVerificationLabel(verifiedMemory), "verified");
+  assert.equal(auditArtifactVerificationLabel(null), "not available");
+  assert.equal(
+    auditArtifactVerificationLabel({ ...verifiedMemory, auditArtifactKey: null, auditArtifactSha256: null, auditVerificationStatus: "not_available" }),
+    "not available",
+  );
+  // A local write has no version_id at all, but is still fully verified.
+  assert.equal(auditArtifactVerificationLabel({ ...verifiedMemory, auditStorageBackend: "local", auditArtifactVersionId: null }), "verified");
+});
+
+test("a legacy API response with no audit artifact fields on memory parses cleanly and reports 'not available', never 'verified'", () => {
+  const body = {
+    investigation: google,
+    precedents: [],
+    unclassified_memory: [],
+    suspected_duplicate_memory: [],
+    storage: "cockroachdb",
+    memory_is_lead_not_evidence: true,
+    memory: {
+      snapshotId: "s", investigationId: "i", parentSnapshotId: null, sourceId: "src",
+      modelVersion: "m", promptVersion: "p", embeddingModel: "e",
+      // No auditArtifactKey/auditArtifactSha256/auditStorageBackend at all --
+      // exactly what a pre-migration-003 row, or an older API version, sends.
+    },
+  };
+  const parsed = parseInvestigationApiResponse(body);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.response.memory?.auditArtifactKey, null);
+  assert.equal(parsed.response.memory?.auditArtifactSha256, null);
+  assert.equal(parsed.response.memory?.auditStorageBackend, null);
+  assert.equal(parsed.response.memory?.auditVerificationStatus, "not_available");
+  assert.equal(auditArtifactVerificationLabel(parsed.response.memory), "not available");
+});
+
+test("a fresh API response with a verified artifact reports 'verified' and exposes only safe lineage fields", () => {
+  const body = {
+    investigation: google,
+    precedents: [],
+    unclassified_memory: [],
+    suspected_duplicate_memory: [],
+    storage: "cockroachdb",
+    memory_is_lead_not_evidence: true,
+    memory: {
+      snapshotId: "s", investigationId: "i", parentSnapshotId: null, sourceId: "src",
+      modelVersion: "m", promptVersion: "p", embeddingModel: "e",
+      auditArtifactKey: "investigations/case-x/i/s.json", auditArtifactSha256: "a".repeat(64), auditStorageBackend: "s3",
+      auditArtifactVersionId: "s3-version-1", auditArtifactVerifiedAt: "2026-08-15T00:00:00.000Z",
+    },
+  };
+  const parsed = parseInvestigationApiResponse(body);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.response.memory?.auditVerificationStatus, "verified");
+  assert.equal(auditArtifactVerificationLabel(parsed.response.memory), "verified");
+
+  const memoryKeys = Object.keys(parsed.response.memory ?? {}).sort();
+  assert.deepEqual(memoryKeys, [
+    "auditArtifactKey", "auditArtifactSha256", "auditStorageBackend", "auditArtifactVersionId", "auditArtifactVerifiedAt", "auditVerificationStatus",
+    "embeddingModel", "investigationId", "modelVersion", "parentSnapshotId", "promptVersion", "snapshotId", "sourceId",
+  ].sort());
+  for (const forbidden of ["bucket", "region", "prefix", "credential", "accessKey", "secret", "url", "presigned"]) {
+    assert.ok(!memoryKeys.some((key) => key.toLowerCase().includes(forbidden.toLowerCase())), `memory lineage must never expose a "${forbidden}"-shaped field`);
+  }
 });

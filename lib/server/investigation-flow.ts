@@ -54,7 +54,7 @@ export async function runInvestigationFlow(
   const storage = store instanceof CockroachDBMemoryStore ? "cockroachdb" : "local-mock";
   let memory: LatestCaseSnapshot | null = null;
   if (result.ok) {
-    await store.save({ investigation: result.investigation, isMock: storage === "local-mock" });
+    await store.save({ investigation: result.investigation, isMock: storage === "local-mock", retrievedMemory: classified });
     memory = semanticStore.findLatestForCase ? await semanticStore.findLatestForCase(request.case_id) : null;
   }
   return { ...result, precedents, unclassifiedMemory: classified.unclassified, suspectedDuplicateMemory: classified.suspectedDuplicates, storage, memory };
