@@ -235,7 +235,7 @@
         },
         {
           "evidence_id": "E1",
-          "reason": "E1 weakens H1 because rollback completed at 23:25 but errors remained unchanged until 23:40; a deploy-caused failure should have cleared within minutes under the declared behavior."
+          "reason": "E1's deploy timing made H1 a candidate, but timing alone does not establish causation, and E1's own rollback record shows rollback completed at 23:25 while errors remained unchanged until 23:40; a deploy-caused failure should have cleared within minutes under the declared behavior."
         },
         {
           "evidence_id": "E5",
@@ -249,12 +249,7 @@
       "resurrection_condition": null,
       "statement": "The 23:00 deploy broke the checkout flow.",
       "status": "active",
-      "supported_by": [
-        {
-          "evidence_id": "E1",
-          "reason": "E1 makes H1 a candidate only because deployment preceded the failure window. Timing alone does not establish causation, and rollback behavior contradicts a deploy-only account."
-        }
-      ],
+      "supported_by": [],
       "would_be_refuted_by": "The 23:00 deployment change set and payment-service scheduler configuration showing no change capable of disabling, misconfiguring, or preventing the 23:05 TLS renewal job."
     },
     {

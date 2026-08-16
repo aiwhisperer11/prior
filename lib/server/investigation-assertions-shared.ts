@@ -259,6 +259,67 @@ export function ungroundedUnexpectedAbsentIds(investigation: SherlockInvestigati
     .map((item) => item.id);
 }
 
+/**
+ * The literal invariant: for every hypothesis, supported_by and
+ * contradicted_by must cite disjoint evidence sets. Citing the same
+ * evidence_id as both supporting and contradicting one hypothesis is a
+ * direct logical contradiction — the model asserting two incompatible
+ * readings of one datum against one claim — never legitimate, regardless of
+ * hedging language in the reason text. General across every case: this
+ * inspects only the evidence_id sets per hypothesis, never wording or case
+ * content, so it cannot be satisfied by rewording and cannot misfire on a
+ * case it wasn't written for.
+ *
+ * A single evidence item is free to be compatible with several rival
+ * hypotheses at once — that is normal and not what this check restricts.
+ * What it restricts is a single evidence item being recorded as both
+ * causal support for, and a contradiction of, the same hypothesis. Per P4
+ * and P12, evidence that only establishes weak temporal or contextual
+ * candidacy — "this event preceded the outcome" or "this was raised as a
+ * candidate" — is never itself causal support, so it does not belong in
+ * supported_by in the first place; it belongs only in the hypothesis's own
+ * reasoning or as framing inside a contradicted_by reason.
+ */
+export function evidenceSupportingAndContradictingSameHypothesis(
+  investigation: SherlockInvestigation,
+): Array<{ hypothesisId: string; evidenceId: string }> {
+  const conflicts: Array<{ hypothesisId: string; evidenceId: string }> = [];
+  for (const hypothesis of investigation.hypotheses) {
+    const supportedIds = new Set(hypothesis.supported_by.map((link) => link.evidence_id));
+    for (const link of hypothesis.contradicted_by) {
+      if (supportedIds.has(link.evidence_id)) {
+        conflicts.push({ hypothesisId: hypothesis.id, evidenceId: link.evidence_id });
+      }
+    }
+  }
+  return conflicts;
+}
+
+/**
+ * killed_by is the one place the schema treats an evidence-hypothesis
+ * relationship as decisive and exclusive (C3: "the specific evidence id or
+ * datum that killed it"). An evidence id cited as the datum that killed a
+ * hypothesis can never also be cited as supporting that same hypothesis.
+ * This is checked independently of
+ * evidenceSupportingAndContradictingSameHypothesis above: killed_by is a
+ * separate field from contradicted_by, so an evidence id can be a
+ * hypothesis's killed_by without appearing in its contradicted_by array at
+ * all, and that case must still be caught.
+ */
+export function killedByEvidenceAlsoSupportsHypothesis(
+  investigation: SherlockInvestigation,
+): Array<{ hypothesisId: string; evidenceId: string }> {
+  const conflicts: Array<{ hypothesisId: string; evidenceId: string }> = [];
+  for (const hypothesis of investigation.hypotheses) {
+    const killedBy = hypothesis.killed_by;
+    if (!killedBy) continue;
+    if (hypothesis.supported_by.some((link) => link.evidence_id === killedBy)) {
+      conflicts.push({ hypothesisId: hypothesis.id, evidenceId: killedBy });
+    }
+  }
+  return conflicts;
+}
+
 export function hypothesisFor(
   investigation: SherlockInvestigation,
   matcher: RegExp,
