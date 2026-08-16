@@ -41,26 +41,33 @@ const googleRequest = readJson<InvestigationRequest>("../examples/case-google-se
 const OFFICIAL_URL = "status.cloud.google.com/security/incidents/wCAYU8nZcNY1sMVJPb7p";
 
 /**
- * A real live-run artifact (.sherlock/case-google-secops-live-result.json):
- * the model kept the URL but reformulated every E1-E10 label/content into its
- * own paraphrase. Stripping the URL on top of that reproduces the exact
- * reported failure: expected_behavior loses its only source anchor AND every
- * evidence item's label/content is reworded, in the same response.
+ * Built from the tracked, vetted fixture (examples/case-google-secops-2026.
+ * expected-investigation.json), not a captured live-run artifact -- the test
+ * suite must not depend on anything under .sherlock/ (gitignored, not
+ * reproducible in a fresh checkout or CI). This deterministically reproduces
+ * the same class of failure a live run exhibited: expected_behavior loses
+ * its only source anchor (the status-page URL) AND every evidence item's
+ * label/content is reworded, in the same response.
  */
-function googleLiveRunWithUrlDropped(): SherlockInvestigation {
-  const live = readJson<SherlockInvestigation>("../.sherlock/case-google-secops-live-result.json");
-  assert.match(live.case.expected_behavior, new RegExp(OFFICIAL_URL.replace(/[/.]/g, "\\$&")), "fixture must actually contain the URL before this test strips it");
+function googleGarbledCaseText(): SherlockInvestigation {
+  const base = readJson<SherlockInvestigation>("../examples/case-google-secops-2026.expected-investigation.json");
+  assert.match(base.case.expected_behavior, new RegExp(OFFICIAL_URL.replace(/[/.]/g, "\\$&")), "fixture must actually contain the URL before this test strips it");
   return {
-    ...live,
+    ...base,
     case: {
-      ...live.case,
-      expected_behavior: live.case.expected_behavior.replace(/\s*\(status\.cloud\.google\.com[^)]*\)/, ""),
+      ...base.case,
+      expected_behavior: base.case.expected_behavior.replace(/\s*\(status\.cloud\.google\.com[^)]*\)/, ""),
+      evidence: base.case.evidence.map((evidence) => ({
+        ...evidence,
+        label: `Model paraphrase of ${evidence.label}`,
+        content: `Reworded by the model: ${evidence.content}`,
+      })),
     },
   };
 }
 
 test("a model response that drops the official URL from expected_behavior does not lose it in the final investigation", async () => {
-  const garbled = googleLiveRunWithUrlDropped();
+  const garbled = googleGarbledCaseText();
   assert.doesNotMatch(garbled.case.expected_behavior, /status\.cloud\.google\.com/, "the garbled fixture must not contain the URL");
 
   const result = await runSherlockInvestigation({ ...googleRequest, iteration: 1 } as never, fakeClient([JSON.stringify(garbled)]));
@@ -72,7 +79,7 @@ test("a model response that drops the official URL from expected_behavior does n
 });
 
 test("a model response that reformulates evidence labels/content is discarded; the final investigation keeps the exact input values", async () => {
-  const garbled = googleLiveRunWithUrlDropped();
+  const garbled = googleGarbledCaseText();
   // Confirm the fixture really did reformulate labels/content relative to the request, otherwise this test proves nothing.
   assert.notDeepEqual(
     garbled.case.evidence.map((e) => [e.label, e.content]),
@@ -90,7 +97,7 @@ test("a model response that reformulates evidence labels/content is discarded; t
 });
 
 test("the model cannot add, remove, duplicate, or renumber evidence items", async () => {
-  const base = googleLiveRunWithUrlDropped();
+  const base = googleGarbledCaseText();
   const tampered: SherlockInvestigation = {
     ...base,
     case: {
@@ -113,8 +120,8 @@ test("the model cannot add, remove, duplicate, or renumber evidence items", asyn
   assert.equal(result.investigation.case.evidence.length, 10);
 });
 
-test("Google E1-E10 classify as source_claim / verified_as_published / high even after a live run garbles expected_behavior and evidence", async () => {
-  const garbled = googleLiveRunWithUrlDropped();
+test("Google E1-E10 classify as source_claim / verified_as_published / high even after the model garbles expected_behavior and evidence", async () => {
+  const garbled = googleGarbledCaseText();
   const result = await runSherlockInvestigation({ ...googleRequest, iteration: 1 } as never, fakeClient([JSON.stringify(garbled)]));
 
   assert.equal(result.ok, true);
@@ -248,7 +255,7 @@ test("Cloudflare keeps its assertion contract when the model echoes reworded cas
 
 test("Google SecOps keeps its assertion contract through the same canonicalization boundary", async () => {
   const expected = readJson<SherlockInvestigation>("../examples/case-google-secops-2026.expected-investigation.json");
-  const garbled = googleLiveRunWithUrlDropped();
+  const garbled = googleGarbledCaseText();
   // Keep the vetted reasoning fields (hypotheses, matrix, etc.) but the garbled case/meta.
   const candidate: SherlockInvestigation = { ...expected, meta: garbled.meta, case: garbled.case };
 

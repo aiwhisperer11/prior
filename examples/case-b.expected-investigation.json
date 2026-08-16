@@ -37,7 +37,7 @@
   "hypotheses": [
     {
       "id": "H1",
-      "statement": "The 23:00 deploy broke the checkout flow.",
+      "statement": "The 23:00 deploy broke the checkout flow",
       "origin": "user",
       "status": "weakened",
       "confidence": 25,
@@ -53,7 +53,7 @@
     },
     {
       "id": "H2",
-      "statement": "Database overload under evening traffic caused the checkout failures.",
+      "statement": "Database overload under evening traffic",
       "origin": "user",
       "status": "rejected",
       "confidence": 5,

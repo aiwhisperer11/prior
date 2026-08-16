@@ -1,4 +1,4 @@
-import type { InvestigationRequest, SherlockInvestigation } from "@/types/sherlock";
+import type { InvestigationRequest, SherlockHypothesis, SherlockInvestigation } from "@/types/sherlock";
 
 export interface CaseAssertion {
   name: string;
@@ -97,7 +97,22 @@ function isWordSubsequence(shorter: string[], longer: string[]): boolean {
   return index === shorter.length;
 }
 
-/** Every supplied user hypothesis must be retained with origin=user. */
+/**
+ * Legacy textual heuristic: every supplied user hypothesis must be retained
+ * with origin=user, judged by bidirectional word-subsequence matching.
+ *
+ * Superseded by userHypothesisSeedViolations below for any request that goes
+ * through seed reservation (computeUserHypothesisSeeds): that path assigns
+ * each user hypothesis a stable id before the model runs and requires an
+ * exact, verbatim echo, which this fuzzy heuristic cannot guarantee (it
+ * tolerates paraphrase, reordering is the one thing it does NOT tolerate,
+ * and it has no notion of id or of a 1:1 mapping, so two distinct user
+ * hypotheses merged into one output hypothesis can both read as "preserved").
+ * Kept unchanged, and still exported, so historical snapshots persisted
+ * before seed reservation existed remain readable/comparable on their own
+ * terms; new requests should be evaluated with userHypothesisSeedViolations
+ * instead (see sharedAssertions below).
+ */
 export function userHypothesesPreserved(
   request: InvestigationRequest,
   investigation: SherlockInvestigation,
@@ -112,6 +127,118 @@ export function userHypothesesPreserved(
       );
     });
   });
+}
+
+export interface UserHypothesisSeed {
+  id: string;
+  statement: string;
+}
+
+/**
+ * Assigns each supplied user hypothesis a stable, server-owned H<n> id
+ * before the model is ever called -- the seed reservation step. Formal
+ * follow-up contract:
+ *
+ * - No new user hypotheses supplied: every previously-baselined one
+ *   (origin=user in priorHypotheses, carried in from a previous_snapshot)
+ *   keeps exactly the id and statement it was given before.
+ * - A newly-supplied statement that is character-for-character identical to
+ *   an already-carried seed's statement reuses that seed's existing id --
+ *   a caller that resubmits its full running list of user hypotheses every
+ *   iteration (rather than only the delta) must not fragment one hypothesis
+ *   into two ids for the same text.
+ * - A newly-supplied statement that differs at all from every carried seed
+ *   is always a NEW seed at the next free id -- never a silent mutation of
+ *   an existing seed's statement. There is no concept of "editing" a seed in
+ *   place: a reworded restatement of an earlier idea is, structurally, a
+ *   different hypothesis with its own id; the original seed is untouched
+ *   and still present.
+ * - The next free id is computed across every id in priorHypotheses (user
+ *   and sherlock alike), never just the user-origin subset, so a new user
+ *   hypothesis on a later iteration can never collide with an id the model
+ *   already owns.
+ *
+ * Exact duplicate statements within newUserHypotheses itself are rejected
+ * upstream as an input validation failure (see isValidUserHypotheses in
+ * sherlock-engine.ts) -- this function assumes newUserHypotheses has
+ * already been validated and contains no internal duplicates.
+ */
+export function computeUserHypothesisSeeds(
+  priorHypotheses: Array<Pick<SherlockHypothesis, "id" | "statement" | "origin">> | undefined,
+  newUserHypotheses: string[] | undefined,
+): UserHypothesisSeed[] {
+  const carried = (priorHypotheses ?? [])
+    .filter((hypothesis) => hypothesis.origin === "user")
+    .map((hypothesis) => ({ id: hypothesis.id, statement: hypothesis.statement }));
+  const carriedStatements = new Set(carried.map((seed) => seed.statement));
+  let nextNumber =
+    (priorHypotheses ?? []).reduce((maximum, hypothesis) => {
+      const match = /^H(\d+)$/.exec(hypothesis.id);
+      return match ? Math.max(maximum, Number(match[1])) : maximum;
+    }, 0) + 1;
+
+  const seeded: UserHypothesisSeed[] = [];
+  for (const statement of newUserHypotheses ?? []) {
+    if (carriedStatements.has(statement)) continue;
+    seeded.push({ id: `H${nextNumber}`, statement });
+    nextNumber += 1;
+  }
+  return [...carried, ...seeded];
+}
+
+export interface UserHypothesisSeedViolation {
+  seedId: string;
+  reason: string;
+}
+
+/**
+ * Deterministic, id-based replacement for the fuzzy text matching above, for
+ * any request that went through seed reservation. Each seed's id and
+ * statement were fixed by the server before the model ran; the model's only
+ * job for a seed is to return exactly one hypothesis with that id, that
+ * statement character-for-character, and origin "user" -- it may add its own
+ * reasoning (supported_by, contradicted_by, confidence, status, ...) to that
+ * hypothesis, but it may never paraphrase, reorder, extend, truncate, merge,
+ * split, renumber, or reassign origin on it. No text-similarity judgment is
+ * involved: a seed is either present, unedited, at its reserved id with
+ * origin=user, or it is a violation.
+ */
+export function userHypothesisSeedViolations(
+  seeds: UserHypothesisSeed[],
+  hypotheses: SherlockHypothesis[],
+): UserHypothesisSeedViolation[] {
+  const violations: UserHypothesisSeedViolation[] = [];
+  for (const seed of seeds) {
+    const matches = hypotheses.filter((hypothesis) => hypothesis.id === seed.id);
+    if (matches.length === 0) {
+      violations.push({
+        seedId: seed.id,
+        reason: `Reserved user-hypothesis seed ${seed.id} ("${seed.statement}") is missing from the response. Every reserved seed must appear exactly once, unedited.`,
+      });
+      continue;
+    }
+    if (matches.length > 1) {
+      violations.push({
+        seedId: seed.id,
+        reason: `Reserved id ${seed.id} appears ${matches.length} times among the returned hypotheses; a reserved seed id can never be reused for a different hypothesis.`,
+      });
+      continue;
+    }
+    const [hypothesis] = matches;
+    if (hypothesis.statement !== seed.statement) {
+      violations.push({
+        seedId: seed.id,
+        reason: `${seed.id}'s statement was changed. A reserved user hypothesis must be echoed verbatim -- no paraphrase, reorder, extension, or merge. Expected "${seed.statement}", got "${hypothesis.statement}".`,
+      });
+    }
+    if (hypothesis.origin !== "user") {
+      violations.push({
+        seedId: seed.id,
+        reason: `${seed.id} is a reserved user-hypothesis seed and must have origin "user", but the response has origin "${hypothesis.origin}".`,
+      });
+    }
+  }
+  return violations;
 }
 
 /** C3: status "rejected" requires killed_by and resurrection_condition. */
@@ -332,7 +459,13 @@ export function sharedAssertions(
   investigation: SherlockInvestigation,
 ): CaseAssertion[] {
   const unknownIds = unknownEvidenceIds(request, investigation);
-  const userHypothesesOk = userHypothesesPreserved(request, investigation);
+  // sharedAssertions always evaluates a freshly-generated (non-iteration)
+  // investigation, so seeds are derived exactly as they would be for a
+  // baseline request: no prior hypotheses, ids reserved starting at H1.
+  const seedViolations = userHypothesisSeedViolations(
+    computeUserHypothesisSeeds(undefined, request.user_hypotheses),
+    investigation.hypotheses,
+  );
   const rejectedLifecycleOk = rejectedHypothesesSatisfyLifecycle(investigation);
   const nextTest = nextTestDiscriminatesPrimeSuspect(investigation);
   const filler = genericFillerFields(investigation);
@@ -346,8 +479,10 @@ export function sharedAssertions(
     },
     {
       name: "User hypotheses preserve origin=user",
-      passed: userHypothesesOk,
-      detail: userHypothesesOk ? "Every supplied user hypothesis is retained with origin=user." : "A supplied user hypothesis is missing or has the wrong origin.",
+      passed: seedViolations.length === 0,
+      detail: seedViolations.length
+        ? seedViolations.map((violation) => `${violation.seedId}: ${violation.reason}`).join(" | ")
+        : "Every supplied user hypothesis is retained verbatim, at its reserved id, with origin=user.",
     },
     {
       name: "Rejected hypotheses satisfy lifecycle fields",

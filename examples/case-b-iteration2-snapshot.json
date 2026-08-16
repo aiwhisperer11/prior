@@ -247,7 +247,7 @@
       "killed_by": null,
       "origin": "user",
       "resurrection_condition": null,
-      "statement": "The 23:00 deploy broke the checkout flow.",
+      "statement": "The 23:00 deploy broke the checkout flow",
       "status": "active",
       "supported_by": [],
       "would_be_refuted_by": "The 23:00 deployment change set and payment-service scheduler configuration showing no change capable of disabling, misconfiguring, or preventing the 23:05 TLS renewal job."
@@ -300,7 +300,7 @@
       "killed_by": null,
       "origin": "user",
       "resurrection_condition": null,
-      "statement": "Database overload under evening traffic caused the checkout errors.",
+      "statement": "Database overload under evening traffic",
       "status": "weakened",
       "supported_by": [],
       "would_be_refuted_by": "Database telemetry covering the affected checkout requests that shows latency remained below 50ms and no saturation throughout 23:10-23:40."
