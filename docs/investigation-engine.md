@@ -210,6 +210,20 @@ coherence.explanation, or in a hypothesis's own reasoning — distinct from
 the causal determination itself, which rests on the mechanism attribution,
 not on the secondary details (see C4).
 
+P15. USER HYPOTHESIS SEEDS ARE RESERVED, NOT DRAFTS.
+Any hypothesis listed under "USER HYPOTHESES -- SERVER-RESERVED, MUST BE
+ECHOED VERBATIM" in the user message already has its id and statement fixed
+by the system, before you were invoked. For each one, return exactly one
+hypothesis with that exact id, that exact statement character-for-character,
+and origin "user" — do not paraphrase, reorder, extend, truncate, correct,
+or merge a reserved statement, and never assign a reserved id to a different
+hypothesis. You remain free to add your own reasoning — supported_by,
+contradicted_by, confidence, status, would_be_refuted_by, killed_by,
+resurrection_condition — to that hypothesis, and to add your own additional
+hypotheses under new, unreserved ids with origin "sherlock". A response that
+drops, fuses, splits, renumbers, or reworks a reserved seed is rejected and
+retried exactly like a schema violation (see C1).
+
 ### Output Contract
 
 C1. IDS. Evidence E1..En (echo the provided ids; never renumber), hypotheses
@@ -319,8 +333,17 @@ EVIDENCE
 [{id}] {label}: {content}
 {end for}
 
-USER HYPOTHESES (include each with origin "user")
-{for each} - {statement} {end for}
+{if any user-hypothesis seeds are reserved}
+USER HYPOTHESES -- SERVER-RESERVED, MUST BE ECHOED VERBATIM (see P15)
+Each id below is already reserved and fixed by the system. For each one,
+include in your hypotheses array exactly one hypothesis with that exact id,
+that exact statement character-for-character (do not paraphrase, reorder,
+extend, truncate, correct, or merge it), and origin "user". You may add your
+own reasoning to that hypothesis. Never reuse one of these ids for a
+different hypothesis; your own additional hypotheses must use different ids
+with origin "sherlock".
+{for each seed} [{id}] origin=user, statement (verbatim): {statement} {end for}
+{end if}
 
 {if iteration > 1}
 PREVIOUS SNAPSHOT (reuse ids; report learning deltas against it)
@@ -332,6 +355,44 @@ NEW EVIDENCE THIS ITERATION
 
 Return the full SherlockInvestigation JSON snapshot.
 ```
+
+---
+
+## Server-Owned User-Hypothesis Seed IDs (implementation, not part of the prompt)
+
+This section documents server-side behavior in
+lib/server/investigation-assertions-shared.ts (`computeUserHypothesisSeeds`)
+and lib/server/sherlock-engine.ts (`runSherlockInvestigation`,
+`prepareInvestigationRequest`) — not a reasoning rule the model follows. The
+model only ever sees the *result* of this assignment, transported verbatim
+via the USER HYPOTHESES block above; P15 already covers everything the model
+needs to know (echo each reserved seed exactly, at its id, with origin
+"user"). This section exists so the follow-up id-assignment contract itself
+is documented somewhere, since it happens entirely before the model is
+called and is invisible to it.
+
+Every `user_hypotheses` entry — on a first request or a follow-up — is
+resolved to a seed id under these rules, applied in order:
+
+1. **Existing seed, identical statement.** If the supplied statement is
+   character-for-character identical to a seed already carried from
+   `previous_snapshot.hypotheses` (origin "user"), it reuses that seed's
+   existing id. A caller that resubmits its full running list of user
+   hypotheses every iteration, rather than only the delta, never fragments
+   one hypothesis into two ids for the same text.
+2. **New statement.** Any statement that does not exactly match an
+   already-carried seed is always a new seed, assigned the next `H<n>` free
+   across *every* id used anywhere in the case so far — user-origin and
+   sherlock-origin alike — never just the user-origin subset.
+3. **Editing is never in-place mutation.** There is no concept of "editing"
+   a seed. A reworded restatement of an earlier idea is, by rule 2, a
+   genuinely new statement: it gets its own new id, and the original seed's
+   id and statement are left completely untouched and still present.
+4. **Exact duplicates within one request are rejected, not deduplicated.**
+   If a single `user_hypotheses` array (one request, one call) contains the
+   same statement twice, character-for-character, the request itself fails
+   input validation before any seed is reserved — never silently collapsed
+   to one entry.
 
 ---
 

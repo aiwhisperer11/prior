@@ -4,11 +4,14 @@ import type OpenAI from "openai";
 import investigationSchema from "@/lib/investigation.schema.json";
 import { getOpenAIClient } from "@/lib/openai";
 import {
+  computeUserHypothesisSeeds,
   evidenceSupportingAndContradictingSameHypothesis,
   killedByEvidenceAlsoSupportsHypothesis,
   invalidExpectedButAbsentIds,
   ungroundedUnexpectedAbsentIds,
   unknownEvidenceIds,
+  userHypothesisSeedViolations,
+  type UserHypothesisSeed,
 } from "@/lib/server/investigation-assertions-shared";
 import { buildInvestigationUserMessage, SYSTEM_PROMPT } from "@/lib/sherlock-prompt";
 import { OPENAI_INVESTIGATION_WIRE_SCHEMA } from "@/lib/wire-schema";
@@ -66,6 +69,21 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+/**
+ * Exact duplicate statements within a single user_hypotheses array are
+ * rejected here, at the input boundary -- never silently deduplicated or
+ * merged downstream. computeUserHypothesisSeeds (investigation-assertions-shared.ts)
+ * assumes it will never see this shape; catching it here, before seed
+ * reservation, keeps that function a pure derivation over already-valid
+ * input. Comparison is exact-string, not normalized: this is an input
+ * hygiene check, not a semantic-similarity judgment.
+ */
+function isValidUserHypotheses(value: unknown): value is string[] | undefined {
+  if (value === undefined) return true;
+  if (!Array.isArray(value) || !value.every(isNonEmptyString)) return false;
+  return new Set(value).size === value.length;
+}
+
 function isSherlockInvestigation(value: unknown): value is SherlockInvestigation {
   return validateInvestigation(value) as boolean;
 }
@@ -86,9 +104,7 @@ export function isInvestigationRequest(value: unknown): value is InvestigationRe
         isNonEmptyString(evidence.content)
       );
     });
-  const hasValidUserHypotheses =
-    body.user_hypotheses === undefined ||
-    (Array.isArray(body.user_hypotheses) && body.user_hypotheses.every(isNonEmptyString));
+  const hasValidUserHypotheses = isValidUserHypotheses(body.user_hypotheses);
 
   return (
     isNonEmptyString(body.case_id) &&
@@ -151,6 +167,9 @@ export function prepareInvestigationRequest(value: unknown): InvestigationPrepar
       if (!isNewEvidence(body.new_evidence)) {
         return { ok: false, message: "new_evidence must contain at least one label and content pair" };
       }
+      if (!isValidUserHypotheses(body.user_hypotheses)) {
+        return { ok: false, message: "user_hypotheses must be an array of non-empty, non-duplicate strings when supplied" };
+      }
 
       const previousSnapshot = body.previous_snapshot;
       const iteration = previousSnapshot.meta.iteration + 1;
@@ -174,6 +193,10 @@ export function prepareInvestigationRequest(value: unknown): InvestigationPrepar
           iteration,
           previous_snapshot: previousSnapshot,
           new_evidence: newEvidence,
+          // Carried through, not dropped: user-hypothesis seeds are derived
+          // from previous_snapshot.hypotheses (origin=user) plus this field
+          // by computeUserHypothesisSeeds inside runSherlockInvestigation.
+          user_hypotheses: body.user_hypotheses,
         },
       };
     }
@@ -228,27 +251,58 @@ function applyCanonicalCaseEnvelope(
 }
 
 /**
+ * A second, narrower envelope for identity-bearing fields on user-hypothesis
+ * seeds specifically. Applied only after userHypothesisSeedViolations has
+ * already confirmed every seed is present, verbatim, at its reserved id,
+ * with origin "user" — so this is a defensive pin, not the enforcement
+ * mechanism itself, matching applyCanonicalCaseEnvelope's philosophy: the
+ * server, not the model's echo, is the final source of truth for identity
+ * fields it already owned before the model ran. Every other field on the
+ * hypothesis (confidence, status, supported_by, contradicted_by, ...)
+ * remains exactly what the model returned.
+ */
+function applyCanonicalUserHypothesisSeeds(
+  investigation: SherlockInvestigation,
+  seeds: UserHypothesisSeed[],
+): SherlockInvestigation {
+  if (seeds.length === 0) return investigation;
+  const seedById = new Map(seeds.map((seed) => [seed.id, seed]));
+  return {
+    ...investigation,
+    hypotheses: investigation.hypotheses.map((hypothesis) => {
+      const seed = seedById.get(hypothesis.id);
+      if (!seed) return hypothesis;
+      return { ...hypothesis, statement: seed.statement, origin: "user" as const };
+    }),
+  };
+}
+
+/**
  * Semantic integrity gate applied after the Case Envelope boundary, on the
- * reasoning the model remains authoritative for. Three independent checks:
- * every evidence id referenced anywhere (matrix, hypothesis links, killed_by)
- * must resolve against the canonical evidence set; every
- * expected_but_absent_id must resolve to a real, correctly-linked
- * unexpected_absent item that is itself grounded in evidence that was
- * actually checked (the structural proxy for P3's distinction between a
- * demonstrated absence and data that was simply never available to check);
- * for every hypothesis, supported_by and contradicted_by must cite disjoint
- * evidence — the same evidence id cannot be asserted as both supporting and
- * contradicting one hypothesis; and an evidence id cited as killed_by (the
- * decisive datum C3 requires for a rejected hypothesis) can never also
- * appear in that hypothesis's supported_by, checked independently since
- * killed_by is a separate field from contradicted_by. Both are general
- * across every case, never keyed to specific ids or case content. Any
- * failure here is treated exactly like a malformed response: one retry,
+ * reasoning the model remains authoritative for. Independent checks: every
+ * evidence id referenced anywhere (matrix, hypothesis links, killed_by) must
+ * resolve against the canonical evidence set; every expected_but_absent_id
+ * must resolve to a real, correctly-linked unexpected_absent item that is
+ * itself grounded in evidence that was actually checked (the structural
+ * proxy for P3's distinction between a demonstrated absence and data that
+ * was simply never available to check); for every hypothesis, supported_by
+ * and contradicted_by must cite disjoint evidence — the same evidence id
+ * cannot be asserted as both supporting and contradicting one hypothesis;
+ * an evidence id cited as killed_by (the decisive datum C3 requires for a
+ * rejected hypothesis) can never also appear in that hypothesis's
+ * supported_by, checked independently since killed_by is a separate field
+ * from contradicted_by; and every reserved user-hypothesis seed (assigned
+ * before the model ran, see computeUserHypothesisSeeds) must appear exactly
+ * once, verbatim, at its reserved id, with origin "user" — no paraphrase,
+ * reorder, merge, split, renumbering, or origin change. All of these are
+ * general across every case, never keyed to specific ids or case content.
+ * Any failure here is treated exactly like a malformed response: one retry,
  * then rejection. The model never gets to have it silently resolved for it.
  */
 function semanticIntegrityErrorsFor(
   request: InvestigationIterationRequest,
   investigation: SherlockInvestigation,
+  userHypothesisSeeds: UserHypothesisSeed[],
 ): ValidationErrorResponse[] {
   const errors: ValidationErrorResponse[] = [];
 
@@ -309,6 +363,17 @@ function semanticIntegrityErrorsFor(
     });
   }
 
+  const seedViolations = userHypothesisSeedViolations(userHypothesisSeeds, investigation.hypotheses);
+  if (seedViolations.length > 0) {
+    errors.push({
+      instancePath: "",
+      schemaPath: "",
+      keyword: "user_hypothesis_seed_violation",
+      message: `Reserved user-hypothesis seed(s) were not echoed verbatim: ${seedViolations.map((violation) => `${violation.seedId}: ${violation.reason}`).join(" | ")}`,
+      params: { seedViolations },
+    });
+  }
+
   return errors;
 }
 
@@ -332,6 +397,15 @@ export async function runSherlockInvestigation(
     iteration: iterationNumber,
     evidence: request.evidence.map((evidence) => toCanonicalEvidenceItem(evidence, iterationNumber)),
   };
+  // Seed reservation happens once, before the model is ever called, and is
+  // reused unchanged across both attempts of the retry loop below: a retry
+  // must not re-derive different ids from a failed prior response, since the
+  // reservation depends only on preparedRequest (previous_snapshot and
+  // user_hypotheses), never on model output.
+  const userHypothesisSeeds = computeUserHypothesisSeeds(
+    preparedRequest.previous_snapshot?.hypotheses,
+    preparedRequest.user_hypotheses,
+  );
   const rawResponses: string[] = [];
   let validationErrors: ValidationErrorResponse[] = [];
 
@@ -343,7 +417,7 @@ export async function runSherlockInvestigation(
         model: OPENAI_MODEL,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: buildInvestigationUserMessage(preparedRequest) },
+          { role: "user", content: buildInvestigationUserMessage(preparedRequest, userHypothesisSeeds) },
         ],
         response_format: {
           type: "json_schema",
@@ -405,13 +479,20 @@ export async function runSherlockInvestigation(
         continue;
       }
 
-      const semanticIntegrityErrors = semanticIntegrityErrorsFor(preparedRequest, canonical);
+      const semanticIntegrityErrors = semanticIntegrityErrorsFor(preparedRequest, canonical, userHypothesisSeeds);
       if (semanticIntegrityErrors.length > 0) {
         validationErrors = semanticIntegrityErrors;
         continue;
       }
 
-      return { ok: true, investigation: canonical, rawResponses };
+      // Defensive pin, not the enforcement mechanism: semanticIntegrityErrorsFor
+      // above already proved every seed is present verbatim, at its reserved
+      // id, with origin "user". This guarantees identity fields on a seed
+      // hypothesis are the server's own values, never the model's echo of
+      // them, even if some future change to the gate above were to loosen it.
+      const sealed = applyCanonicalUserHypothesisSeeds(canonical, userHypothesisSeeds);
+
+      return { ok: true, investigation: sealed, rawResponses };
     }
 
     validationErrors = formatValidationErrors(validateInvestigation.errors);
