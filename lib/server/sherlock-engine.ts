@@ -4,6 +4,8 @@ import type OpenAI from "openai";
 import investigationSchema from "@/lib/investigation.schema.json";
 import { getOpenAIClient } from "@/lib/openai";
 import {
+  evidenceSupportingAndContradictingSameHypothesis,
+  killedByEvidenceAlsoSupportsHypothesis,
   invalidExpectedButAbsentIds,
   ungroundedUnexpectedAbsentIds,
   unknownEvidenceIds,
@@ -227,13 +229,22 @@ function applyCanonicalCaseEnvelope(
 
 /**
  * Semantic integrity gate applied after the Case Envelope boundary, on the
- * reasoning the model remains authoritative for. Two independent checks:
+ * reasoning the model remains authoritative for. Three independent checks:
  * every evidence id referenced anywhere (matrix, hypothesis links, killed_by)
- * must resolve against the canonical evidence set, and every
+ * must resolve against the canonical evidence set; every
  * expected_but_absent_id must resolve to a real, correctly-linked
  * unexpected_absent item that is itself grounded in evidence that was
- * actually checked — the structural proxy for P3's distinction between a
- * demonstrated absence and data that was simply never available to check.
+ * actually checked (the structural proxy for P3's distinction between a
+ * demonstrated absence and data that was simply never available to check);
+ * for every hypothesis, supported_by and contradicted_by must cite disjoint
+ * evidence — the same evidence id cannot be asserted as both supporting and
+ * contradicting one hypothesis; and an evidence id cited as killed_by (the
+ * decisive datum C3 requires for a rejected hypothesis) can never also
+ * appear in that hypothesis's supported_by, checked independently since
+ * killed_by is a separate field from contradicted_by. Both are general
+ * across every case, never keyed to specific ids or case content. Any
+ * failure here is treated exactly like a malformed response: one retry,
+ * then rejection. The model never gets to have it silently resolved for it.
  */
 function semanticIntegrityErrorsFor(
   request: InvestigationIterationRequest,
@@ -273,6 +284,28 @@ function semanticIntegrityErrorsFor(
       keyword: "ungrounded_unexpected_absent",
       message: `expectation_matrix.unexpected_absent item(s) cite no evidence_ids, so they cannot demonstrate an absence: ${ungrounded.join(", ")}. Data that was never available to check belongs in missing_evidence, not unexpected_absent.`,
       params: { ungroundedUnexpectedAbsentIds: ungrounded },
+    });
+  }
+
+  const supportContradictConflicts = evidenceSupportingAndContradictingSameHypothesis(investigation);
+  if (supportContradictConflicts.length > 0) {
+    errors.push({
+      instancePath: "",
+      schemaPath: "",
+      keyword: "evidence_support_contradiction_conflict",
+      message: `Evidence cannot both support and contradict the same hypothesis: ${supportContradictConflicts.map(({ hypothesisId, evidenceId }) => `${evidenceId} on ${hypothesisId}`).join(", ")}.`,
+      params: { conflicting: supportContradictConflicts },
+    });
+  }
+
+  const killedByConflicts = killedByEvidenceAlsoSupportsHypothesis(investigation);
+  if (killedByConflicts.length > 0) {
+    errors.push({
+      instancePath: "",
+      schemaPath: "",
+      keyword: "killed_by_evidence_also_supports",
+      message: `Evidence cited as killed_by (the decisive datum that rejected the hypothesis) cannot also appear in supported_by: ${killedByConflicts.map(({ hypothesisId, evidenceId }) => `${evidenceId} on ${hypothesisId}`).join(", ")}.`,
+      params: { conflicting: killedByConflicts },
     });
   }
 

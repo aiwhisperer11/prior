@@ -1,0 +1,428 @@
+{
+  "anomalies": [
+    {
+      "description": "A globally deployed WAF rule was expected to be screened for runaway CPU use and bounded at the edge, yet the deployed WAF consumed affected machines' CPU and coincided with global HTTP/HTTPS 502 errors.",
+      "fully_explained": true,
+      "hypothesis_ids": [
+        "H2",
+        "H3",
+        "H4",
+        "H5"
+      ],
+      "id": "A1",
+      "matrix_item_ids": [
+        "X1",
+        "X2",
+        "X3",
+        "X4"
+      ],
+      "severity": "high"
+    },
+    {
+      "description": "The initial large-scale attack explanation clashes with live profiling that attributed CPU consumption to the WAF module rather than an external traffic surge.",
+      "fully_explained": true,
+      "hypothesis_ids": [
+        "H1",
+        "H2",
+        "H5"
+      ],
+      "id": "A2",
+      "matrix_item_ids": [
+        "X3",
+        "X5"
+      ],
+      "severity": "medium"
+    }
+  ],
+  "case": {
+    "observed_outcome": "Cloudflare's edge network returned HTTP 502 errors for HTTP and HTTPS traffic globally from 13:42 to 14:09 UTC on 2 July 2019 (27 minutes), with CPU utilization on machines handling HTTP/HTTPS traffic reaching close to 100%. Core proxying, CDN, and WAF functionality were unavailable for customers worldwide during this window.",
+    "expected_behavior": "WAF rule changes are deployed globally within seconds via Cloudflare's Quicksilver config-distribution system; this is by design and bypasses the normal staged DOG/PIG/Canary rollout used for other software releases, because the WAF must respond rapidly to emerging threats. In exchange, the WAF release pipeline is expected to test each rule for runaway CPU utilization before it reaches production, and Cloudflare's edge software is expected to enforce a CPU-usage limit on any single regular expression evaluated against a request, so that one rule cannot consume unbounded CPU on a machine.",
+    "evidence": [
+      {
+        "id": "E1",
+        "label": "Pull request log",
+        "content": "A pull request introducing a new WAF rule, intended to add a JavaScript-detection capability, was merged at 13:31 UTC on 2 July 2019. The rule's regex included the pattern .*(?:.*=.*) inside a larger expression, which is vulnerable to catastrophic backtracking against certain inputs.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E2",
+        "label": "CI build log (TeamCity)",
+        "content": "TeamCity built the updated WAF ruleset and ran the existing test suite at 13:37 UTC, and the change passed. The test suite did not include a check for runaway CPU utilization by a WAF rule.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E3",
+        "label": "Quicksilver deployment log",
+        "content": "The new ruleset began deploying automatically and globally at 13:42 UTC via Quicksilver, Cloudflare's config-distribution system, which propagates a change to every edge machine worldwide with a p99 latency of about 2.29 seconds.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E4",
+        "label": "PagerDuty alert log",
+        "content": "The first PagerDuty alert fired at 13:45 UTC. It was a synthetic test of WAF functionality failing, not a CPU-utilization alert.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E5",
+        "label": "Incident response chat log",
+        "content": "In the initial minutes of the incident, responders speculated that the global 502 errors resembled a large-scale attack of a type not seen before.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E6",
+        "label": "Performance team CPU profiling",
+        "content": "At 14:00 UTC, the Performance Team pulled live CPU data from an affected edge machine. The data clearly showed the WAF module consuming the CPU, not an external traffic surge; the attack theory was dismissed at this point.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E7",
+        "label": "Incident response chat log",
+        "content": "At 14:02 UTC, responders proposed terminating the WAF globally to stop the CPU exhaustion, since a targeted rollback of only the new rule was judged too slow: the standard rollback path required rebuilding the complete WAF ruleset, which the team reported would take too long during an active global outage.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E8",
+        "label": "Quicksilver deployment log",
+        "content": "Global WAF termination was executed at 14:07 UTC.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E9",
+        "label": "Traffic and CPU monitoring",
+        "content": "Traffic levels and CPU utilization on edge machines returned to normal by 14:09 UTC, 27 minutes after the automatic deployment began at 13:42 UTC. The WAF was re-enabled globally at 14:52 UTC after the rule was fixed and retested.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E10",
+        "label": "Post-incident engineering review",
+        "content": "The post-incident review found that a protection mechanism intended to limit excessive CPU usage by a single regular expression had been removed by mistake during a refactoring of the WAF completed weeks before 2 July 2019.",
+        "provided_in_iteration": 1
+      },
+      {
+        "id": "E11",
+        "label": "Post-incident engineering review",
+        "content": "The same review found the WAF's release test suite did not test for runaway CPU utilization; it validated rule correctness but not CPU behavior under adversarial input.",
+        "provided_in_iteration": 1
+      }
+    ]
+  },
+  "coherence": {
+    "explanation": "H2 coheres with the vulnerable regex in E1, global propagation in E3, WAF-attributed CPU consumption in E6, recovery after WAF termination in E8-E9, and the two failed safeguards in E10-E11. H3 and H4 explain why the rule could reach and exhaust production but do not independently identify the triggering execution path. The exact request and regex evaluation that caused the pathological match were not supplied, leaving a limited but material gap.",
+    "score": 88
+  },
+  "expectation_matrix": {
+    "expected_absent": [
+      {
+        "description": "The release pipeline did not test the new WAF rule for runaway CPU utilization before production.",
+        "evidence_ids": [
+          "E2",
+          "E11"
+        ],
+        "id": "X1",
+        "related_hypothesis_ids": [
+          "H2",
+          "H4"
+        ],
+        "significance": "This directly violates the declared requirement that each rule be tested for runaway CPU use and explains why correctness-only CI could pass a CPU-exhausting rule."
+      },
+      {
+        "description": "The edge CPU-usage protection for a single regular expression was not present at the time of the incident because it had been removed during an earlier refactoring.",
+        "evidence_ids": [
+          "E10"
+        ],
+        "id": "X2",
+        "related_hypothesis_ids": [
+          "H2",
+          "H3"
+        ],
+        "significance": "This directly violates the declared per-regex CPU-limit expectation and removes the expected containment of runaway regex evaluation."
+      }
+    ],
+    "expected_present": [
+      {
+        "description": "The updated WAF ruleset began automatic global deployment through Quicksilver at 13:42 UTC.",
+        "evidence_ids": [
+          "E3"
+        ],
+        "id": "X4",
+        "related_hypothesis_ids": [
+          "H2",
+          "H4"
+        ],
+        "significance": "This is consistent with the declared rapid global WAF-distribution design and establishes that a single accepted ruleset could reach all edge machines quickly."
+      }
+    ],
+    "unexpected_absent": [
+      {
+        "description": "An external traffic surge capable of explaining the CPU exhaustion was not shown in the live profiling of an affected edge machine; the supplied profiling instead attributed CPU use to the WAF module.",
+        "evidence_ids": [
+          "E6"
+        ],
+        "id": "X5",
+        "related_hypothesis_ids": [
+          "H1"
+        ],
+        "significance": "A large-scale external attack hypothesis predicts external traffic as the CPU driver. The checked profile did not show that predicted driver, seriously weakening that hypothesis."
+      }
+    ],
+    "unexpected_present": [
+      {
+        "description": "Affected edge machines showed WAF-module CPU consumption while the edge network returned global HTTP/HTTPS 502 errors.",
+        "evidence_ids": [
+          "E6",
+          "E9"
+        ],
+        "id": "X3",
+        "related_hypothesis_ids": [
+          "H1",
+          "H2",
+          "H3",
+          "H4",
+          "H5"
+        ],
+        "significance": "This is the central abnormal outcome: CPU exhaustion occurred in the WAF execution path during a global availability failure."
+      }
+    ]
+  },
+  "hypotheses": [
+    {
+      "confidence": 92,
+      "contradicted_by": [],
+      "expected_but_absent_ids": [],
+      "id": "H2",
+      "killed_by": null,
+      "origin": "sherlock",
+      "resurrection_condition": null,
+      "statement": "The newly deployed WAF regex catastrophically backtracked on production input and exhausted WAF CPU globally; the missing per-regex CPU safeguard allowed one rule to consume the machine's CPU.",
+      "status": "active",
+      "supported_by": [
+        {
+          "evidence_id": "E1",
+          "reason": "E1 identifies a newly merged rule containing a pattern described as vulnerable to catastrophic backtracking against certain inputs, supplying the proposed CPU-exhaustion mechanism."
+        },
+        {
+          "evidence_id": "E6",
+          "reason": "E6 attributes CPU consumption on an affected machine to the WAF module, matching the mechanism's predicted execution location rather than an external traffic driver."
+        },
+        {
+          "evidence_id": "E9",
+          "reason": "E9 records normalization of CPU and traffic after global WAF termination, consistent with removing the CPU-consuming WAF execution path."
+        },
+        {
+          "evidence_id": "E10",
+          "reason": "E10 states that the intended per-regex CPU protection had been removed, explaining why the proposed runaway evaluation was not bounded."
+        }
+      ],
+      "would_be_refuted_by": "A preserved affected-request trace or regex profiler result showing that the new rule was not evaluated pathologically and that another WAF code path, rather than this regex, consumed the CPU."
+    },
+    {
+      "confidence": 64,
+      "contradicted_by": [],
+      "expected_but_absent_ids": [],
+      "id": "H3",
+      "killed_by": null,
+      "origin": "sherlock",
+      "resurrection_condition": null,
+      "statement": "Removal of the per-regular-expression CPU limit was an enabling cause of the outage because it allowed a CPU-expensive WAF evaluation to monopolize edge-machine CPU rather than being contained.",
+      "status": "active",
+      "supported_by": [
+        {
+          "evidence_id": "E10",
+          "reason": "E10 directly reports that the intended single-regex CPU protection had been removed before the incident."
+        },
+        {
+          "evidence_id": "E6",
+          "reason": "E6 places the observed CPU consumption in the WAF module, the component in which the removed protection was intended to constrain regex CPU use."
+        }
+      ],
+      "would_be_refuted_by": "The pre-incident WAF source or runtime configuration showing an equivalent effective per-regex CPU limit was active on affected machines at 13:42 UTC."
+    },
+    {
+      "confidence": 58,
+      "contradicted_by": [],
+      "expected_but_absent_ids": [],
+      "id": "H4",
+      "killed_by": null,
+      "origin": "sherlock",
+      "resurrection_condition": null,
+      "statement": "The release pipeline's absence of runaway-CPU testing was an enabling cause because it allowed the CPU-expensive rule to pass CI and enter the globally distributed ruleset.",
+      "status": "active",
+      "supported_by": [
+        {
+          "evidence_id": "E2",
+          "reason": "E2 states that CI passed while lacking a runaway-CPU check."
+        },
+        {
+          "evidence_id": "E11",
+          "reason": "E11 independently reports that the suite tested rule correctness but not CPU behavior under adversarial input."
+        }
+      ],
+      "would_be_refuted_by": "A retained pre-deployment test record showing that this exact rule was subjected to an adversarial CPU-utilization test and passed within the required limit."
+    },
+    {
+      "confidence": 18,
+      "contradicted_by": [
+        {
+          "evidence_id": "E1",
+          "reason": "E1 provides a specific newly deployed WAF-regex mechanism capable of causing pathological CPU use, making an unrelated WAF defect less necessary as the explanation."
+        },
+        {
+          "evidence_id": "E6",
+          "reason": "E6 locates CPU use in the WAF module but does not identify an independent code defect; it therefore leaves this alternative without a specific causal path."
+        }
+      ],
+      "expected_but_absent_ids": [],
+      "id": "H5",
+      "killed_by": null,
+      "origin": "sherlock",
+      "resurrection_condition": null,
+      "statement": "An independent WAF software defect, unrelated to the newly added regex, caused the WAF module to consume CPU during the incident.",
+      "status": "weakened",
+      "supported_by": [],
+      "would_be_refuted_by": "A preserved affected-request trace and WAF profiler result showing the new rule's regex repeatedly backtracking and accounting for the CPU consumption."
+    },
+    {
+      "confidence": 3,
+      "contradicted_by": [
+        {
+          "evidence_id": "E6",
+          "reason": "E6 reports live profiling that attributed the affected machine's CPU consumption to the WAF module rather than an external traffic surge; this directly defeats the hypothesis's required CPU driver. E5 only records that responders considered an attack and is not causal support."
+        }
+      ],
+      "expected_but_absent_ids": [
+        "X5"
+      ],
+      "id": "H1",
+      "killed_by": "E6",
+      "origin": "user",
+      "resurrection_condition": "Traffic telemetry or independent packet-level evidence from the incident window showing an external traffic surge that drove the affected machines' CPU consumption, contrary to the E6 profiling conclusion.",
+      "statement": "It was a large-scale attack of a type we hadn't seen before.",
+      "status": "rejected",
+      "supported_by": [],
+      "would_be_refuted_by": "Live or archived affected-machine profiling showing that WAF processing, rather than external traffic volume, consumed the CPU."
+    }
+  ],
+  "learning": {
+    "is_baseline": true,
+    "summary": "Baseline assessment: H2 leads because the supplied material connects a vulnerable newly deployed regex (E1), WAF-local CPU consumption (E6), recovery after WAF termination (E9), and removal of the intended CPU safeguard (E10). H3 and H4 are supported as enabling failures by E10 and E2/E11, but neither alone supplies the triggering execution mechanism. H5 remains a weak alternative because no supplied datum identifies a different defect. The user-provided attack hypothesis is rejected because E6 directly attributes CPU consumption away from an external surge; E5 is responder speculation only.",
+    "updates": [
+      {
+        "hypothesis_id": "H2",
+        "new_confidence": 92,
+        "new_status": "active",
+        "previous_confidence": null,
+        "previous_status": null,
+        "reason": "Initial confidence is high from E1, E6, E9, and E10; the missing affected-request trace prevents complete certainty."
+      },
+      {
+        "hypothesis_id": "H3",
+        "new_confidence": 64,
+        "new_status": "active",
+        "previous_confidence": null,
+        "previous_status": null,
+        "reason": "Initial confidence reflects E10's direct report that the intended CPU limiter was removed and E6's WAF-local CPU attribution."
+      },
+      {
+        "hypothesis_id": "H4",
+        "new_confidence": 58,
+        "new_status": "active",
+        "previous_confidence": null,
+        "previous_status": null,
+        "reason": "Initial confidence reflects E2 and E11 showing that CI lacked the required runaway-CPU test."
+      },
+      {
+        "hypothesis_id": "H5",
+        "new_confidence": 18,
+        "new_status": "weakened",
+        "previous_confidence": null,
+        "previous_status": null,
+        "reason": "An alternative WAF defect remains possible, but E1 supplies a more specific candidate mechanism and no evidence identifies an independent defect."
+      },
+      {
+        "hypothesis_id": "H1",
+        "new_confidence": 3,
+        "new_status": "rejected",
+        "previous_confidence": null,
+        "previous_status": null,
+        "reason": "E6 directly contradicts the required external-surge CPU driver; E5 records only initial speculation."
+      }
+    ]
+  },
+  "meta": {
+    "case_id": "case-cloudflare-waf-2019",
+    "case_title": "Cloudflare global outage, 2 July 2019, 13:42-14:09 UTC",
+    "domain": "Internet infrastructure incident",
+    "iteration": 1
+  },
+  "mirror_question": "If H2 is false, the clue most likely being overread is E6: it identifies the WAF module as the CPU consumer but does not itself prove that the newly added regex, rather than another WAF execution path, caused that consumption.",
+  "missing_evidence": [
+    {
+      "criticality": "critical",
+      "description": "A preserved affected-request sample together with per-rule or per-regex profiling from an affected edge machine during 13:42-14:07 UTC, showing whether the new rule and its vulnerable pattern repeatedly consumed CPU.",
+      "id": "M1",
+      "impact_if_found": "Evidence of repeated pathological evaluation of the new regex would materially confirm H2 and weaken H5. Evidence that the rule was not involved and another WAF path consumed CPU would weaken H2 and could revive or strengthen H5.",
+      "related_hypothesis_ids": [
+        "H2",
+        "H5"
+      ]
+    },
+    {
+      "criticality": "useful",
+      "description": "The pre-incident WAF source and runtime configuration establishing exactly when the per-regex CPU limiter was removed and whether any equivalent safeguard remained effective on affected machines.",
+      "id": "M2",
+      "impact_if_found": "Confirmation that no equivalent limiter was active would strengthen H3 as an enabling cause. Evidence of an active equivalent limiter would weaken H3 and require explaining how CPU remained unbounded.",
+      "related_hypothesis_ids": [
+        "H2",
+        "H3"
+      ]
+    },
+    {
+      "criticality": "useful",
+      "description": "The full pre-deployment performance-test artifacts for the merged rule, including any adversarial inputs considered or omitted.",
+      "id": "M3",
+      "impact_if_found": "Proof that no adversarial CPU test ran would reinforce H4. Proof that an appropriate test ran and passed would weaken H4 and shift attention to a production-only trigger or an ineffective test design.",
+      "related_hypothesis_ids": [
+        "H2",
+        "H4"
+      ]
+    }
+  ],
+  "next_test": {
+    "description": "Retrieve one affected-machine request sample and the corresponding WAF per-rule/regex CPU profile from the 13:42-14:07 UTC window, then determine whether the newly merged rule's regex accounted for the CPU time.",
+    "discriminates_between": [
+      "H2",
+      "H5"
+    ],
+    "does_not_discriminate_from": [],
+    "outcome_map": [
+      {
+        "favors_hypothesis_id": "H2",
+        "observed_result": "The new JavaScript-detection rule repeatedly evaluates on the captured request and its regex accounts for the dominant CPU time or shows catastrophic backtracking.",
+        "weakens_hypothesis_id": "H5"
+      },
+      {
+        "favors_hypothesis_id": "H5",
+        "observed_result": "The new rule is absent from the high-CPU evaluation path, while another WAF code path or rule accounts for the dominant CPU time.",
+        "weakens_hypothesis_id": "H2"
+      },
+      {
+        "favors_hypothesis_id": null,
+        "observed_result": "No request sample or profiler record is retained for the incident window.",
+        "weakens_hypothesis_id": null
+      }
+    ]
+  },
+  "open_case_index": {
+    "explanation": "The principal anomaly is coherently explained by H2, including the two absent safeguards X1 and X2. The case remains open because no supplied request-level trace directly ties the pathological evaluation to the new regex, leaving H5 as a weakened alternative. X5 strongly disposes of the external-attack hypothesis rather than creating an unresolved anomaly.",
+    "score": 22
+  },
+  "prime_suspect": {
+    "absolving_datum": "A preserved incident-window WAF profile showing that the new regex was not on the high-CPU path and that another WAF component consumed the CPU.",
+    "condemning_datum": "A preserved incident-window trace showing the newly merged regex catastrophically backtracking and accounting for CPU exhaustion on an affected edge machine.",
+    "hypothesis_id": "H2",
+    "justification": "H2 explains A1's vulnerable rule, global propagation, WAF-local CPU exhaustion, and recovery after WAF termination; it also incorporates the absent CPU limiter in X2. It explains A2 better than H1 because E6 attributes CPU use to WAF processing rather than an external surge. H3 and H4 explain enabling failures but not the triggering execution mechanism, while H5 lacks a specific alternative defect. No hypothesis-predicted observable is currently absent for H2; its remaining weakness is missing direct request-level attribution, recorded as M1."
+  },
+  "root_cause_status": "determined",
+  "schema_version": "1.0.0",
+  "undetermined_explanation": null
+}

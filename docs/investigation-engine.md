@@ -161,6 +161,55 @@ uncertainty: it fabricates the appearance of an investigation. This applies
 especially to significance, reason, impact_if_found, justification and
 explanation fields.
 
+P12. SPECULATION, VIABILITY, AND ATTRIBUTION ARE NOT CAUSATION.
+A witness's or responder's speculation is evidence that a hypothesis was
+considered as a candidate — never that its causal mechanism actually
+occurred. Cite it for candidacy only; it does not belong in supported_by as a
+causal claim (see P4 on temporal candidacy, and C8 below).
+
+Evidence that a mechanism is technically capable of producing the outcome
+(viability) does not by itself demonstrate that anyone intended to trigger
+it, or that they did so deliberately. Mechanism and intent are separate
+claims: do not let evidence for one stand in for the other.
+
+Evidence attributing resource consumption or failure to an internal
+component can weaken a hypothesis that specifically requires external
+volume or traffic to explain the outcome — but it does not by itself
+exclude a hypothesis that a specific, targeted input activated that
+component. Attribution to where a failure occurred is not proof of why it
+was triggered.
+
+Keep mechanism (what physically happened), trigger (what specific input or
+event set it off), and intent (whether it was deliberate) as three separate
+claims. Evidence that establishes one does not automatically establish the
+others; do not conflate them in a hypothesis statement or an evidence-link
+reason.
+
+P13. ABSENCE OF SUPPORT IS NOT CONTRADICTORY EVIDENCE.
+Evidence belongs in contradicted_by only when its observed content is
+directly incompatible with a prediction or required condition of the
+hypothesis. Merely failing to identify, confirm, mention, or isolate the
+hypothesis's proposed mechanism is not incompatibility — it is a gap in what
+is known. Record that gap in missing_evidence, or in the confidence
+rationale (learning summary, coherence.explanation), never as a
+contradicted_by entry. "X does not identify/confirm/mention Y" describes
+what remains unknown; it is not a statement that X contradicts Y, and must
+never be phrased or placed as though it were (see C8 on what
+contradicted_by structurally asserts).
+
+P14. A DIRECTLY ATTRIBUTED MAIN MECHANISM CAN BE DETERMINED WHILE SECONDARY
+DETAILS REMAIN OPEN.
+root_cause_status may be "determined" from convergent, authoritative
+attribution of the main mechanism even when exact request-level
+reproduction, a complete execution trace, formal exclusion of every
+secondary path, or the trigger's intent remain unresolved. Do not
+automatically downgrade a directly attributed main mechanism to
+"undetermined" merely because one of these secondary details is still open.
+State that remaining uncertainty separately — in missing_evidence, in
+coherence.explanation, or in a hypothesis's own reasoning — distinct from
+the causal determination itself, which rests on the mechanism attribution,
+not on the secondary details (see C4).
+
 ### Output Contract
 
 C1. IDS. Evidence E1..En (echo the provided ids; never renumber), hypotheses
@@ -209,6 +258,21 @@ C7. INSUFFICIENT INPUT. If an input field is empty or insufficient (e.g. no
 expected_behavior), do not fabricate one: work with what exists, say so in
 coherence.explanation, and let missing_evidence reflect what the user should
 provide.
+
+C8. SUPPORT AND CONTRADICTION ARE MUTUALLY EXCLUSIVE, PER HYPOTHESIS. For
+each hypothesis, supported_by and contradicted_by must cite disjoint
+evidence ids — the same evidence id must never appear in both. That is a
+direct contradiction (asserting two incompatible readings of one datum
+against one claim), not two independent observations that happen to
+disagree. If a single evidence item carries more than one fact and only one
+of those facts actually supports the hypothesis while a different fact
+contradicts it, that is legitimate — but a fact that only establishes weak
+candidacy (P4, P12) is never itself causal support and must not be placed in
+supported_by at all; keep it, if anywhere, as framing inside the
+contradicted_by reason. Separately: when status is "rejected", killed_by
+must never also appear in supported_by — the decisive datum that kills a
+hypothesis cannot simultaneously be cited as supporting it, even if it is
+absent from contradicted_by.
 
 ### Iteration Rules
 
