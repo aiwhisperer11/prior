@@ -60,9 +60,9 @@ test("evidence classification does not depend on literal 'status update' wording
       observed_outcome: "irrelevant to this check",
       expected_behavior: "The only evidence available for this investigation is Google's own public status page (status.cloud.google.com/security/incidents/wCAYU8nZcNY1sMVJPb7p); no internal engineering telemetry is publicly available.",
       evidence: [
-        { id: "E1", label: "Initial status update", content: "content 1", provided_in_iteration: 1 },
-        { id: "E2", label: "Stats Search delay identified", content: "content 2", provided_in_iteration: 1 },
-        { id: "E10", label: "Resolution update", content: "content 10", provided_in_iteration: 1 },
+        { id: "E1", label: "Initial status update", content: "content 1", provided_in_iteration: 1, provenance: null },
+        { id: "E2", label: "Stats Search delay identified", content: "content 2", provided_in_iteration: 1, provenance: null },
+        { id: "E10", label: "Resolution update", content: "content 10", provided_in_iteration: 1, provenance: null },
       ],
     },
     hypotheses: [],
@@ -82,7 +82,7 @@ test("evidence classification falls back to per-item heuristics when the case do
     case: {
       observed_outcome: "irrelevant to this check",
       expected_behavior: "Internal engineering systems are expected to behave normally; no single named public source is declared.",
-      evidence: [{ id: "E1", label: "Pull request log", content: "content", provided_in_iteration: 1 }],
+      evidence: [{ id: "E1", label: "Pull request log", content: "content", provided_in_iteration: 1, provenance: null }],
     },
     hypotheses: [],
   } as unknown as SherlockInvestigation;

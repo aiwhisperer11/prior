@@ -1,14 +1,25 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { Pool, type PoolConfig } from "pg";
+import { Pool } from "pg";
 
 import { buildAuditArtifactEnvelope, buildAuditArtifactKey, computeArtifactSha256, serializeAuditArtifact, type RetrievedMemoryForAudit } from "@/lib/server/audit-artifact";
 import { AuditIntegrityError, AuditStorageUnavailableError, S3AuditStorage, getAuditStorage, type AuditStorage } from "@/lib/server/audit-storage";
+import { cockroachPoolOptions } from "@/lib/server/cockroach-pool";
 import { embedText, l2Distance, type Embedder } from "@/lib/server/embeddings";
+import { getLocalEvidenceScoutCandidateStoreIfActive, type CandidateEvidenceLinkInput, type LocalEvidenceScoutCandidateStore } from "@/lib/server/evidence-scout-store";
+import { MemoryStoreUnavailableError } from "@/lib/server/memory-store-errors";
 import { OPENAI_MODEL } from "@/lib/server/sherlock-engine";
 import { canonicalize } from "@/lib/server/v2-snapshot-store";
 import { PROMPT_VERSION } from "@/lib/sherlock-prompt";
 import type { InvestigationRequest, SherlockInvestigation } from "@/types/sherlock";
+
+// Re-exported for backward compatibility: existing importers (e.g.
+// tests/memory-flow.test.ts, app/api/investigate/route.ts) use these names
+// from this module. Their real definitions live in cockroach-pool.ts /
+// memory-store-errors.ts specifically to let evidence-scout-store.ts (which
+// this module also depends on, for saveSnapshotWithEvidenceLinks) import
+// them without a circular dependency on this file.
+export { cockroachPoolOptions, MemoryStoreUnavailableError };
 
 export interface PrecedentLead {
   caseId: string;
@@ -84,6 +95,28 @@ export interface InvestigationMemoryStore {
   save(record: StoredInvestigation): Promise<void>;
 }
 
+export type SaveWithEvidenceLinksResult =
+  | { ok: true; snapshotId: string }
+  | { ok: false; code: "candidate_already_spent"; candidateId: string };
+
+/**
+ * Optional capability, detected via duck typing (same pattern as
+ * SemanticCapableStore in investigation-flow.ts) so a plain
+ * findPrecedents/save test double keeps satisfying InvestigationMemoryStore
+ * unchanged. Both concrete stores below implement it.
+ *
+ * Point 5: snapshot insert + candidate link happen in a single transaction.
+ * If linking ANY candidate fails -- point 6, a candidate can only be spent
+ * once, enforced by a guarded UPDATE ... WHERE evidence_id IS NULL -- the
+ * whole transaction rolls back, including the snapshot insert (point 14:
+ * "rollback del snapshot si candidate link falla"). Never called when a
+ * follow-up has no accepted_candidate_ids; plain save() remains the path for
+ * every other write.
+ */
+export interface EvidenceLinkedMemoryStore extends InvestigationMemoryStore {
+  saveSnapshotWithEvidenceLinks(record: StoredInvestigation, candidateLinks: CandidateEvidenceLinkInput[]): Promise<SaveWithEvidenceLinksResult>;
+}
+
 /**
  * Superset used by the vector-memory feature (semantic retrieval + case
  * continuation). Kept separate from InvestigationMemoryStore so existing
@@ -95,10 +128,6 @@ export interface SemanticMemoryStore extends InvestigationMemoryStore {
   findSemanticPrecedents(request: InvestigationRequest, excludeCaseId: string, limit?: number): Promise<PrecedentLead[]>;
   /** The most recent persisted snapshot for this exact case_id (no exclusion) — the continuation lookup. */
   findLatestForCase(caseId: string): Promise<LatestCaseSnapshot | null>;
-}
-
-export class MemoryStoreUnavailableError extends Error {
-  constructor(cause: unknown) { super("CockroachDB memory store is unavailable", { cause }); }
 }
 
 /** Prevents new writes from creating impossible lineage; it never rewrites historical rows. */
@@ -168,7 +197,14 @@ function localRecordRecency(record: LocalRecord): Pick<PrecedentLead, "iteration
 export class LocalMemoryStore implements SemanticMemoryStore {
   private readonly records: LocalRecord[] = [];
 
-  constructor(private readonly embedder: Embedder = (text) => embedText(text)) {}
+  constructor(
+    private readonly embedder: Embedder = (text) => embedText(text),
+    private readonly evidenceScoutStore?: LocalEvidenceScoutCandidateStore,
+  ) {}
+
+  private candidateStore(): LocalEvidenceScoutCandidateStore | null {
+    return this.evidenceScoutStore ?? getLocalEvidenceScoutCandidateStoreIfActive();
+  }
 
   async findPrecedents(domain: string, excludeCaseId: string): Promise<PrecedentLead[]> {
     return latestRecordPerCaseId(
@@ -231,6 +267,62 @@ export class LocalMemoryStore implements SemanticMemoryStore {
       embedding: vector,
       embeddingModel: model,
     });
+  }
+
+  /**
+   * Dev/test equivalent of CockroachDBMemoryStore.saveSnapshotWithEvidenceLinks.
+   * No real transaction exists for an in-memory store; atomicity is achieved
+   * instead by a check-all-then-mutate-all pass with no `await` in between --
+   * JS's single-threaded execution model means nothing else can interleave
+   * between the check and the mutation, so this is genuinely atomic, not
+   * merely convenient.
+   */
+  async saveSnapshotWithEvidenceLinks(record: StoredInvestigation, candidateLinks: CandidateEvidenceLinkInput[]): Promise<SaveWithEvidenceLinksResult> {
+    const { investigation } = record;
+    const sourceId = computeSourceId(investigation.meta.case_id, investigation.meta.iteration, investigation);
+    const existing = this.records.find((r) => r.sourceId === sourceId);
+    if (existing) {
+      const candidateStore = candidateLinks.length > 0 ? this.candidateStore() : null;
+      if (candidateLinks.length > 0 && !candidateStore) {
+        throw new Error("saveSnapshotWithEvidenceLinks: no active LocalEvidenceScoutCandidateStore to link against");
+      }
+      for (const link of candidateLinks) {
+        const candidate = candidateStore?.peekCandidateSync(link.candidateId);
+        if (!candidate || candidate.evidence_id !== link.evidenceId || candidate.snapshot_id !== existing.snapshotId || candidate.iteration !== investigation.meta.iteration) {
+          return { ok: false, code: "candidate_already_spent", candidateId: link.candidateId };
+        }
+      }
+      return { ok: true, snapshotId: existing.snapshotId };
+    }
+
+    const snapshotId = randomUUID();
+    if (candidateLinks.length > 0) {
+      const candidateStore = this.candidateStore();
+      if (!candidateStore) throw new Error("saveSnapshotWithEvidenceLinks: no active LocalEvidenceScoutCandidateStore to link against");
+      for (const link of candidateLinks) {
+        const candidate = candidateStore.peekCandidateSync(link.candidateId);
+        if (!candidate || candidate.state !== "accepted" || candidate.evidence_id !== null) {
+          return { ok: false, code: "candidate_already_spent", candidateId: link.candidateId };
+        }
+      }
+      for (const link of candidateLinks) {
+        candidateStore.trySpendCandidateSync(link.candidateId, link.evidenceId, snapshotId, investigation.meta.iteration);
+      }
+    }
+
+    const prior = await this.findLatestForCase(investigation.meta.case_id);
+    const { vector, model } = await this.embedder(investigationEmbeddingText(investigation));
+    this.records.push({
+      investigation,
+      sourceId,
+      investigationId: prior?.investigationId ?? randomUUID(),
+      snapshotId,
+      parentSnapshotId: parentForNewSnapshot(investigation.meta.iteration, prior),
+      createdAt: new Date().toISOString(),
+      embedding: vector,
+      embeddingModel: model,
+    });
+    return { ok: true, snapshotId };
   }
 
   private toPrecedentLead(record: LocalRecord, distance?: number): PrecedentLead {
@@ -437,19 +529,120 @@ export class CockroachDBMemoryStore implements SemanticMemoryStore {
       throw new OrphanedAuditArtifactError(artifact.key, artifact.sha256, error);
     }
   }
+
+  /**
+   * Point 5: the investigation_memory INSERT and every evidence_scout_candidate
+   * link UPDATE happen inside one BEGIN/COMMIT on a single checked-out client.
+   * The audit-artifact build+write (S3, or local dev storage) still happens
+   * first and outside this transaction, exactly as in save() -- there is no
+   * distributed transaction across S3 and CockroachDB, unchanged from the
+   * existing documented ordering (see save()'s doc comment above).
+   *
+   * Each link UPDATE is guarded (`WHERE state = 'accepted' AND evidence_id
+   * IS NULL`) -- point 6: a candidate can only be spent once. If ANY link
+   * fails that guard (already spent by a racing follow-up), the whole
+   * transaction rolls back, including the snapshot INSERT (point 14:
+   * "rollback del snapshot si candidate link falla") -- the caller sees
+   * `ok: false`, never a partially-persisted snapshot.
+   */
+  async saveSnapshotWithEvidenceLinks(
+    { investigation, isMock, retrievedMemory }: StoredInvestigation,
+    candidateLinks: CandidateEvidenceLinkInput[],
+  ): Promise<SaveWithEvidenceLinksResult> {
+    const prior = await this.findLatestForCase(investigation.meta.case_id);
+    const sourceId = computeSourceId(investigation.meta.case_id, investigation.meta.iteration, investigation);
+    const investigationId = prior?.investigationId ?? randomUUID();
+    const snapshotId = randomUUID();
+    const parentSnapshotId = parentForNewSnapshot(investigation.meta.iteration, prior);
+
+    const envelope = buildAuditArtifactEnvelope({
+      investigation,
+      investigationId,
+      snapshotId,
+      parentSnapshotId,
+      modelVersion: OPENAI_MODEL,
+      promptVersion: PROMPT_VERSION,
+      retrievedMemory: retrievedMemory ?? { related: [], longitudinal: [], suspectedDuplicates: [], unclassified: [] },
+    });
+    const serialized = serializeAuditArtifact(envelope);
+    const sha256 = computeArtifactSha256(serialized);
+    const key = buildAuditArtifactKey(investigation.meta.case_id, investigationId, snapshotId);
+
+    let artifact;
+    try {
+      artifact = await this.auditStorage.putImmutable(key, serialized, "application/json");
+    } catch (error) {
+      if (error instanceof AuditIntegrityError || error instanceof AuditStorageUnavailableError) throw error;
+      throw new AuditStorageUnavailableError(`Audit artifact ${key}: unexpected failure writing to audit storage.`, error);
+    }
+    if (artifact.sha256 !== sha256) throw new AuditIntegrityError(`Audit artifact ${key}: audit storage returned sha256 ${artifact.sha256}, expected ${sha256}.`);
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { vector, model } = await this.embedder(investigationEmbeddingText(investigation));
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO investigation_memory
+           (case_id, case_title, domain, iteration, is_mock, snapshot,
+            investigation_id, parent_snapshot_id, source_id, model_version, prompt_version, embedding, embedding_model,
+            id, audit_artifact_key, audit_artifact_sha256, audit_artifact_backend, audit_artifact_version_id, audit_artifact_verified_at)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+         ON CONFLICT (source_id) WHERE source_id != '' DO NOTHING
+         RETURNING id`,
+        [
+          investigation.meta.case_id, investigation.meta.case_title, investigation.meta.domain, investigation.meta.iteration, isMock, JSON.stringify(investigation),
+          investigationId, parentSnapshotId, sourceId, OPENAI_MODEL, PROMPT_VERSION, JSON.stringify(vector), model,
+          snapshotId, artifact.key, artifact.sha256, this.auditStorageBackendLabel, artifact.versionId, artifact.verifiedAt,
+        ],
+      );
+      let persistedSnapshotId = inserted.rows[0]?.id ?? null;
+      if (persistedSnapshotId === null) {
+        const existing = await client.query<{ id: string }>(
+          `SELECT id FROM investigation_memory WHERE source_id = $1`,
+          [sourceId],
+        );
+        persistedSnapshotId = existing.rows[0]?.id ?? null;
+        if (persistedSnapshotId === null) throw new Error(`investigation_memory row for source_id ${sourceId} disappeared during idempotent retry`);
+        for (const link of candidateLinks) {
+          const linked = await client.query<{ id: string }>(
+            `SELECT id FROM evidence_scout_candidate
+             WHERE id = $1 AND evidence_id = $2 AND snapshot_id = $3 AND iteration = $4`,
+            [link.candidateId, link.evidenceId, persistedSnapshotId, investigation.meta.iteration],
+          );
+          if ((linked.rowCount ?? 0) === 0) {
+            await client.query("ROLLBACK");
+            return { ok: false, code: "candidate_already_spent", candidateId: link.candidateId };
+          }
+        }
+        await client.query("COMMIT");
+        return { ok: true, snapshotId: persistedSnapshotId };
+      }
+
+      for (const link of candidateLinks) {
+        const updated = await client.query(
+          `UPDATE evidence_scout_candidate SET evidence_id = $1, snapshot_id = $2, iteration = $3
+           WHERE id = $4 AND state = 'accepted' AND evidence_id IS NULL`,
+          [link.evidenceId, persistedSnapshotId, investigation.meta.iteration, link.candidateId],
+        );
+        if (updated.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return { ok: false, code: "candidate_already_spent", candidateId: link.candidateId };
+        }
+      }
+
+      await client.query("COMMIT");
+      return { ok: true, snapshotId: persistedSnapshotId };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw new OrphanedAuditArtifactError(artifact.key, artifact.sha256, error);
+    } finally {
+      client.release();
+    }
+  }
 }
 
 type MemoryStoreGlobals = typeof globalThis & { __priorLocalStore?: LocalMemoryStore; __priorCockroachStore?: CockroachDBMemoryStore };
 const stores = globalThis as MemoryStoreGlobals;
-
-export function cockroachPoolOptions(databaseUrl: string): PoolConfig {
-  try {
-    const url = new URL(databaseUrl);
-    if (!url.protocol.startsWith("postgres")) throw new Error("DATABASE_URL must use a PostgreSQL URL");
-    if (url.searchParams.get("sslmode") !== "verify-full") throw new Error("DATABASE_URL must specify sslmode=verify-full");
-    return { connectionString: databaseUrl, ssl: { rejectUnauthorized: true } };
-  } catch (error) { throw new MemoryStoreUnavailableError(error); }
-}
 
 /**
  * DATABASE_URL is read only on the server and never exposed to the client.

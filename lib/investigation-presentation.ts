@@ -8,10 +8,10 @@ import type { EvidenceItem, RootCauseStatus, SherlockInvestigation } from "@/typ
  */
 export type EvidenceAssertionType = "observation" | "source_claim" | "measurement" | "document" | "expert_judgment" | "user_report";
 export type SourceReliability = "high" | "medium" | "low" | "unknown";
-export type VerificationStatus = "verified_as_published" | "corroborated" | "partially_verified" | "unverified";
+export type VerificationStatus = "verified_as_published" | "citation_supported" | "corroborated" | "partially_verified" | "unverified";
 export type CorroborationStatus = "independently_corroborated" | "single_source" | "contradicted" | "unassessed";
 export type CaseRelevance = "direct" | "indirect" | "contextual";
-export type EvidenceOrigin = "current_case" | "retrieved_memory" | "investigator_input";
+export type EvidenceOrigin = "current_case" | "retrieved_memory" | "investigator_input" | "evidence_scout_accepted";
 
 export interface EvidenceRecord {
   id: string;
@@ -83,12 +83,40 @@ function singleDeclaredPublicSource(investigation: SherlockInvestigation): strin
   return /^https?:\/\//i.test(token) ? token : `https://${token}`;
 }
 
+/**
+ * Real provenance (an accepted Evidence Scout candidate, item.provenance
+ * non-null) always wins over the legacy inferred heuristic below -- this is
+ * the gap normalizeEvidenceLedger's own prior doc comment called out as
+ * needing "a real per-item provenance field", now closed structurally.
+ * verification_status is carried through verbatim (never upgraded to
+ * verified_as_published from anything less than the candidate itself
+ * already established); corroboration_status stays "single_source" since
+ * acceptance never implies independent corroboration on its own.
+ */
+function fromRealProvenance(item: EvidenceItem, supports: string[], weakens: string[]): EvidenceRecord {
+  const provenance = item.provenance!;
+  return {
+    id: item.id,
+    summary: compact(item.content),
+    assertion_type: "source_claim",
+    source: { source_id: item.id, name: provenance.publisher ?? provenance.document_title ?? item.label, url: provenance.source_url, published_at: provenance.publication_date, captured_at: provenance.retrieved_at },
+    source_reliability: provenance.source_reliability,
+    verification_status: provenance.verification_status,
+    corroboration_status: "single_source",
+    case_relevance: "direct",
+    origin: "evidence_scout_accepted",
+    supports_hypothesis_ids: supports,
+    weakens_hypothesis_ids: weakens,
+  };
+}
+
 /** Normalizes legacy evidence without upgrading a source claim to a verified observation. */
 export function normalizeEvidenceLedger(investigation: SherlockInvestigation): EvidenceRecord[] {
   const declaredSource = singleDeclaredPublicSource(investigation);
   return investigation.case.evidence.map((item) => {
     const supports = investigation.hypotheses.filter((h) => h.supported_by.some((link) => link.evidence_id === item.id)).map((h) => h.id);
     const weakens = investigation.hypotheses.filter((h) => h.contradicted_by.some((link) => link.evidence_id === item.id)).map((h) => h.id);
+    if (item.provenance) return fromRealProvenance(item, supports, weakens);
     const type = declaredSource ? "source_claim" : assertionType(item);
     return {
       id: item.id, summary: compact(item.content), assertion_type: type,

@@ -3,6 +3,8 @@
 // exports at the bottom exist only so the untouched pre-Block-2 route and UI
 // continue to compile while they still consume lib/sherlock-schema.json.
 
+import type { EvidenceProvenance } from "@/types/evidence-scout";
+
 export type HypothesisStatus = "active" | "weakened" | "rejected" | "revived";
 export type HypothesisOrigin = "user" | "sherlock";
 export type AnomalySeverity = "low" | "medium" | "high";
@@ -13,6 +15,20 @@ export interface EvidenceItem {
   label: string;
   content: string;
   provided_in_iteration: number;
+  /**
+   * Server-owned, never inferred by the model (P1-P15 unchanged; this is not
+   * a reasoning field). Required + nullable in the authoritative schema,
+   * matching prime_suspect/killed_by's existing pattern -- the model always
+   * echoes null (see the field's schema description), and
+   * applyCanonicalCaseEnvelope's unconditional replacement of case.evidence
+   * with the server's own request.evidence means the model's echo is
+   * discarded regardless. A previous_snapshot persisted before this field
+   * existed lacks the key entirely (not null, absent) on its evidence items
+   * -- see lib/server/evidence-scout-legacy-schema.ts for the relaxed
+   * validator that accepts that shape specifically for previous_snapshot,
+   * never for a fresh model response.
+   */
+  provenance: EvidenceProvenance | null;
 }
 
 export interface InvestigationMeta {
@@ -167,7 +183,6 @@ export interface InvestigationIterationRequest extends InvestigationRequest {
   previous_snapshot?: SherlockInvestigation;
   new_evidence?: EvidenceItem[];
   precedent_leads?: Array<{ caseId: string; caseTitle: string; domain: string; summary: string; isMock: boolean }>;
-  retrieved_evidence_context?: unknown;
 }
 
 // Legacy compatibility for the old ACH UI. Remove in the UI migration.

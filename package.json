@@ -10,10 +10,13 @@
     "test": "node --test --import tsx tests/*.test.ts",
     "eval:case-b": "tsx scripts/eval-case-b.ts",
     "eval:case-cloudflare": "tsx scripts/eval-case-cloudflare.ts",
-    "eval:case-google-secops": "tsx scripts/eval-case-google-secops.ts"
+    "eval:case-google-secops": "tsx scripts/eval-case-google-secops.ts",
+    "eval:evidence-scout-sqs-live": "tsx scripts/eval-evidence-scout-sqs-live.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1111.0",
+    "@aws-sdk/client-secrets-manager": "^3.1111.0",
+    "@aws-sdk/client-sqs": "^3.1111.0",
     "ajv": "^8.18.0",
     "next": "16.2.10",
     "openai": "^6.48.0",
@@ -28,6 +31,7 @@
     "@types/pg": "^8.15.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",

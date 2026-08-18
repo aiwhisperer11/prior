@@ -1,7 +1,6 @@
 import { parseSherlockInvestigation } from "@/lib/investigation-validation";
 import { computeCaseFingerprint, hasCompleteIdentityFields, type CaseIdentityFields } from "@/lib/case-fingerprint";
 import type { SherlockInvestigation } from "@/types/sherlock";
-import type { EvidenceScoutResult } from "@/types/evidence-scout";
 
 export interface PrecedentLeadView {
   caseId?: string;
@@ -55,7 +54,6 @@ export interface InvestigationApiResponse {
   suspected_duplicate_memory: SuspectedDuplicateView[];
   storage: "cockroachdb" | "local-mock";
   memory_is_lead_not_evidence: true;
-  evidence_scout?: EvidenceScoutResult | null;
   /** Lineage of what was just persisted for this case_id; null if the store couldn't report it. */
   memory: MemoryLineageView | null;
 }
@@ -204,7 +202,6 @@ export function parseInvestigationApiResponse(value: unknown): InvestigationApiR
       suspected_duplicate_memory: [...classified.suspectedDuplicates, ...(Array.isArray(body.suspected_duplicate_memory) ? body.suspected_duplicate_memory.filter(isSuspectedDuplicateView) : [])],
       storage: body.storage,
       memory_is_lead_not_evidence: true,
-      evidence_scout: body.evidence_scout as EvidenceScoutResult | null | undefined,
       memory: parseMemory(body.memory),
     },
   };

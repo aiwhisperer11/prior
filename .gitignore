@@ -42,3 +42,5 @@ next-env.d.ts
 
 # local live-evaluation artifacts (may contain model output)
 /.sherlock/
+
+.aws-sam/

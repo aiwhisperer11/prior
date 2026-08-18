@@ -44,9 +44,6 @@ export function buildInvestigationUserMessage(
   const precedentContext = request.precedent_leads?.length
     ? `\n\nPRECEDENT LEADS (memory_is_lead_not_evidence: these are retrieval hints, not case evidence; do not cite them as E-ids or causal proof)\n${request.precedent_leads.map((lead) => `- ${lead.caseTitle}: ${lead.summary}${lead.isMock ? " [MOCK]" : ""}`).join("\n")}`
     : "";
-  const retrievalContext = request.retrieved_evidence_context
-    ? `\n\nRETRIEVED EVIDENCE (origin sherlock_retrieval; distinguish it from human evidence and from your inferences. Do not assert causality. Missing or contradictory data stays missing.)\n${JSON.stringify(request.retrieved_evidence_context)}`
-    : "";
 
   return `CASE ${request.case_id} — ${request.case_title}
 Domain: ${request.domain}
@@ -59,7 +56,7 @@ EXPECTED NORMAL BEHAVIOR
 ${request.expected_behavior}
 
 EVIDENCE
-${evidence}${userHypotheses}${retrievalContext}${precedentContext}${iterationContext}
+${evidence}${userHypotheses}${precedentContext}${iterationContext}
 
 Return the full SherlockInvestigation JSON snapshot.`;
 }

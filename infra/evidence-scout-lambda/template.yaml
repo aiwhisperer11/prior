@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Governed Evidence Scout -- SQS-dispatched Lambda search worker. NOT
+  deployed by this repository's tooling; see README.md in this directory for
+  manual deployment steps. Nothing in the application code invokes `sam
+  deploy` or assumes AWS credentials at build/test time.
+
+Parameters:
+  DatabaseUrlSecretArn:
+    Type: String
+    Description: Secrets Manager ARN holding the CockroachDB DATABASE_URL (sslmode=verify-full).
+  OpenAiApiKeySecretArn:
+    Type: String
+    Description: Secrets Manager ARN holding OPENAI_API_KEY. Never passed as a plaintext environment variable.
+
+Resources:
+  EvidenceScoutDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: evidence-scout-search-dlq
+      MessageRetentionPeriod: 1209600   # 14 days, the maximum SQS allows -- keeps failed messages inspectable
+
+  EvidenceScoutQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: evidence-scout-search
+      # 6x the Lambda timeout (90s), per AWS's documented guidance for
+      # sizing an SQS-to-Lambda visibility timeout. Must stay strictly
+      # greater than the function Timeout below (point 4).
+      VisibilityTimeout: 540
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EvidenceScoutDLQ.Arn
+        # Aligned with evidence_scout_action.attempt_count's CHECK (<= 3) in
+        # db/migrations/004_evidence_scout.sql -- SQS-level and DB-level
+        # retry ceilings are kept at the same named number so they cannot
+        # drift apart (MAX_ATTEMPTS in lib/server/evidence-scout-store.ts).
+        maxReceiveCount: 3
+
+  EvidenceScoutSearchFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      # Stable name requires CAPABILITY_NAMED_IAM on deploy/update.
+      RoleName: !Sub "${AWS::StackName}-lambda-runtime"
+      Policies:
+        - PolicyName: lambda-runtime-logs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/evidence-scout-search:log-stream:*"
+        - PolicyName: lambda-runtime-sqs-consumer
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ChangeMessageVisibility
+                Resource: !GetAtt EvidenceScoutQueue.Arn
+        - PolicyName: lambda-runtime-secrets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref DatabaseUrlSecretArn
+                  - !Ref OpenAiApiKeySecretArn
+
+  EvidenceScoutSearchFunction:
+    Type: AWS::Serverless::Function
+    DependsOn:
+      - EvidenceScoutSearchFunctionLogGroup
+    Properties:
+      FunctionName: evidence-scout-search
+      CodeUri: ../../
+      Handler: lib/server/evidence-scout-lambda-bootstrap.handler
+      Runtime: nodejs24.x
+      Role: !GetAtt EvidenceScoutSearchFunctionRole.Arn
+      # Must stay strictly less than EvidenceScoutQueue's VisibilityTimeout
+      # above, and the DB lease (CLAIM_LEASE_SECONDS, 120s in
+      # lib/server/evidence-scout-store.ts) must stay >= this value so a
+      # genuinely in-flight attempt is never mistaken for abandoned.
+      Timeout: 90
+      MemorySize: 512
+      Environment:
+        Variables:
+          DATABASE_URL_SECRET_ARN: !Ref DatabaseUrlSecretArn
+          OPENAI_API_KEY_SECRET_ARN: !Ref OpenAiApiKeySecretArn
+      Events:
+        SearchQueue:
+          Type: SQS
+          Properties:
+            Enabled: true
+            Queue: !GetAtt EvidenceScoutQueue.Arn
+            BatchSize: 1
+            # Deliberately low: this is a governed, human-authorized,
+            # low-volume feature, not a throughput pipeline. Bounds
+            # worst-case concurrent OpenAI web_search spend regardless of
+            # how many messages queue up.
+            ScalingConfig:
+              MaximumConcurrency: 3
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - lib/server/evidence-scout-lambda-bootstrap.ts
+        Format: cjs
+        Minify: false
+        OutExtension:
+          - .js=.js
+        Sourcemap: true
+        Target: es2022
+
+  EvidenceScoutSearchFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/evidence-scout-search
+      RetentionInDays: 14
+
+Outputs:
+  QueueUrl:
+    Value: !Ref EvidenceScoutQueue
+    Description: Set as EVIDENCE_SCOUT_QUEUE_URL for the Next.js app when EVIDENCE_SCOUT_EXECUTOR=sqs.
+  QueueArn:
+    Value: !GetAtt EvidenceScoutQueue.Arn
+  DLQArn:
+    Value: !GetAtt EvidenceScoutDLQ.Arn
+  LambdaRuntimeRoleArn:
+    Value: !GetAtt EvidenceScoutSearchFunctionRole.Arn

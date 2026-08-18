@@ -69,7 +69,7 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "label", "content", "provided_in_iteration"],
+            "required": ["id", "label", "content", "provided_in_iteration", "provenance"],
             "properties": {
               "id": {
                 "type": "string",
@@ -87,6 +87,47 @@
                 "type": "integer",
                 "minimum": 1,
                 "description": "Iteration in which this evidence entered the case. Enables the client to highlight new evidence."
+              },
+              "provenance": {
+                "type": ["object", "null"],
+                "description": "Always null in investigator output. Evidence provenance is server-owned, populated only through the Governed Evidence Scout acceptance workflow (see docs/evidence-scout.md) -- never authored, inferred, or edited by the investigator model. Present here (required, nullable, same pattern as prime_suspect) only so the model can validly echo it; applyCanonicalCaseEnvelope always replaces case.evidence with the server's own copy regardless of what the model returns.",
+                "additionalProperties": false,
+                "required": ["evidence_type", "publisher", "document_title", "source_url", "publication_date", "retrieved_at", "fragment", "cited_text", "claim_summary", "human_accepted_at", "verification_status", "source_reliability", "search_lineage"],
+                "properties": {
+                  "evidence_type": {
+                    "type": "string",
+                    "enum": ["official_publication", "institutional_documentation", "reputable_secondary", "other"],
+                    "description": "Source-policy tier the accepted candidate belonged to."
+                  },
+                  "publisher": { "type": ["string", "null"], "description": "Publisher of the source, when known." },
+                  "document_title": { "type": ["string", "null"], "description": "Title of the source document, when known." },
+                  "source_url": { "type": "string", "description": "Canonical URL of the source. Never invented; always the URL a real citation returned." },
+                  "publication_date": { "type": ["string", "null"], "description": "Publication date of the source, when the source states one." },
+                  "retrieved_at": { "type": "string", "description": "When the candidate was retrieved by the search step." },
+                  "fragment": { "type": "string", "description": "Short excerpt around the citation. Never the full page." },
+                  "cited_text": { "type": ["string", "null"], "description": "Literal, confirmed excerpt from the source, only when actually verified verbatim; null otherwise." },
+                  "claim_summary": { "type": "string", "description": "The search step's own paraphrase of what the source appears to say. Never treated as literal or as ground truth." },
+                  "human_accepted_at": { "type": "string", "description": "When a human explicitly accepted this candidate as evidence." },
+                  "verification_status": {
+                    "type": "string",
+                    "enum": ["citation_supported", "verified_as_published"],
+                    "description": "source_located candidates are never eligible to become evidence, so this narrower enum excludes it by construction. verified_as_published requires cited_text to be non-null; a citation alone is never sufficient."
+                  },
+                  "source_reliability": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low", "unknown"]
+                  },
+                  "search_lineage": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["action_id", "query", "candidate_id"],
+                    "properties": {
+                      "action_id": { "type": "string" },
+                      "query": { "type": "string" },
+                      "candidate_id": { "type": "string" }
+                    }
+                  }
+                }
               }
             }
           }

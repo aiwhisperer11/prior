@@ -4,7 +4,7 @@ import { AuditIntegrityError, AuditStorageUnavailableError } from "@/lib/server/
 import { getMemoryStore, MemoryStoreUnavailableError, OrphanedAuditArtifactError } from "@/lib/server/memory-store";
 import { runInvestigationFlow } from "@/lib/server/investigation-flow";
 import { prepareInvestigationRequest } from "@/lib/server/sherlock-engine";
-import { isEvidenceScoutCaseRequest, scoutCase } from "@/lib/server/evidence-scout";
+import { getEvidenceScoutCandidateStore, resolveAcceptedCandidatesForFollowUp, type ResolvedAcceptedCandidate } from "@/lib/server/evidence-scout-store";
 
 /**
  * Maps a failure from getMemoryStore()/runInvestigationFlow() to a clear,
@@ -40,6 +40,10 @@ function isContinueFromMemoryRequest(value: unknown): value is ContinueFromMemor
   if (value === null || typeof value !== "object") return false;
   const body = value as Record<string, unknown>;
   return body.continue_from_memory === true && typeof body.case_id === "string";
+}
+
+function isValidAcceptedCandidateIds(value: unknown): value is string[] {
+  return value === undefined || (Array.isArray(value) && value.every((id) => typeof id === "string" && id.trim().length > 0));
 }
 
 export async function POST(req: NextRequest) {
@@ -80,11 +84,28 @@ export async function POST(req: NextRequest) {
     body = { previous_snapshot: priorSnapshot.snapshot, new_evidence: body.new_evidence };
   }
 
-  let scout;
-  if (isEvidenceScoutCaseRequest(body)) {
-    try { const output = await scoutCase(body); scout = output.scout; body = output.request; } catch { return NextResponse.json({ error: "Unknown Evidence Scout case; no observations were invented" }, { status: 400 }); }
+  // Point 7: the follow-up wire request only ever carries
+  // accepted_candidate_ids (opaque UUID references), never provenance
+  // content. Every field of the resulting EvidenceItem is resolved
+  // server-side from durable evidence_scout_candidate rows before
+  // prepareInvestigationRequest ever runs.
+  const acceptedCandidateIdsRaw = body !== null && typeof body === "object" ? (body as Record<string, unknown>).accepted_candidate_ids : undefined;
+  if (!isValidAcceptedCandidateIds(acceptedCandidateIdsRaw)) {
+    return NextResponse.json({ error: "accepted_candidate_ids must be an array of non-empty strings when supplied" }, { status: 400 });
   }
-  const prepared = prepareInvestigationRequest(body);
+  const acceptedCandidateIds = acceptedCandidateIdsRaw ?? [];
+  let resolvedCandidateEvidence: ResolvedAcceptedCandidate[] = [];
+  if (acceptedCandidateIds.length > 0) {
+    const caseId = body !== null && typeof body === "object" && typeof (body as Record<string, unknown>).case_id === "string"
+      ? (body as Record<string, unknown>).case_id as string
+      : (body as { previous_snapshot?: { meta?: { case_id?: string } } })?.previous_snapshot?.meta?.case_id;
+    if (!caseId) return NextResponse.json({ error: "accepted_candidate_ids requires a resolvable case_id" }, { status: 400 });
+    const resolution = await resolveAcceptedCandidatesForFollowUp(getEvidenceScoutCandidateStore(), caseId, acceptedCandidateIds);
+    if (!resolution.ok) return NextResponse.json({ error: resolution.message }, { status: 400 });
+    resolvedCandidateEvidence = resolution.resolved;
+  }
+
+  const prepared = prepareInvestigationRequest(body, resolvedCandidateEvidence);
   if (!prepared.ok) {
     return NextResponse.json(
       { error: prepared.message },
@@ -94,7 +115,7 @@ export async function POST(req: NextRequest) {
 
   let result;
   try {
-    result = await runInvestigationFlow(prepared.request, memoryStore, undefined, scout);
+    result = await runInvestigationFlow(prepared.request, memoryStore, undefined, prepared.candidateLinks);
   } catch (error) {
     const response = auditOrMemoryErrorResponse(error);
     if (response) return response;
@@ -107,7 +128,6 @@ export async function POST(req: NextRequest) {
       precedents: result.precedents,
       unclassified_memory: result.unclassifiedMemory,
       suspected_duplicate_memory: result.suspectedDuplicateMemory,
-      evidence_scout: scout ?? null,
       storage: result.storage,
       memory_is_lead_not_evidence: true,
       memory: result.memory,

@@ -69,7 +69,7 @@ function investigationWith(hypotheses: SherlockHypothesis[], iteration = 1): She
     case: {
       observed_outcome: "Observed",
       expected_behavior: "Expected",
-      evidence: [{ id: "E1", label: "L", content: "C", provided_in_iteration: 1 }],
+      evidence: [{ id: "E1", label: "L", content: "C", provided_in_iteration: 1, provenance: null }],
     },
     expectation_matrix: { expected_present: [], unexpected_present: [], expected_absent: [], unexpected_absent: [] },
     anomalies: [],

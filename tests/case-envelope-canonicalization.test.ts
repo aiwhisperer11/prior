@@ -92,7 +92,7 @@ test("a model response that reformulates evidence labels/content is discarded; t
   if (!result.ok) return;
   assert.deepEqual(
     result.investigation.case.evidence,
-    googleRequest.evidence.map((e) => ({ id: e.id, label: e.label, content: e.content, provided_in_iteration: 1 })),
+    googleRequest.evidence.map((e) => ({ id: e.id, label: e.label, content: e.content, provided_in_iteration: 1, provenance: null })),
   );
 });
 
@@ -107,7 +107,7 @@ test("the model cannot add, remove, duplicate, or renumber evidence items", asyn
         { ...base.case.evidence[1]!, id: "E1" }, // duplicate id
         // E3..E9 dropped entirely
         { ...base.case.evidence[9]!, id: "E50" }, // renumbered E10 -> E50
-        { id: "E99", label: "Invented follow-up", content: "The model invented this evidence item.", provided_in_iteration: 1 }, // invented
+        { id: "E99", label: "Invented follow-up", content: "The model invented this evidence item.", provided_in_iteration: 1, provenance: null }, // invented
       ],
     },
   };
@@ -184,7 +184,7 @@ test("follow-up preserves exact prior evidence and adds only server-numbered new
         prepared2.request.evidence[3]!,
         prepared2.request.evidence[4]!,
         prepared2.request.evidence[4]!,
-        { id: "E99", label: "Invented", content: "Invented content.", provided_in_iteration: 2 },
+        { id: "E99", label: "Invented", content: "Invented content.", provided_in_iteration: 2, provenance: null },
       ],
     },
   };
