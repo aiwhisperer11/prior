@@ -190,8 +190,8 @@ export default function SherlockForm({ onSnapshot, onSnapshotsLoaded, onMemory, 
   );
 
   return (
-    <details open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)} className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-800">
-      <summary id="investigation-form-heading" className="cursor-pointer text-xl font-semibold">New investigation</summary>
+    <details open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)} className="prior-card overflow-hidden p-5 sm:p-7">
+      <summary id="investigation-form-heading" className="cursor-pointer text-xl font-bold text-[var(--prior-night)]">New investigation</summary>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={loadExample} className="rounded border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">Load example</button>
@@ -240,7 +240,7 @@ export default function SherlockForm({ onSnapshot, onSnapshotsLoaded, onMemory, 
         </fieldset>
 
         {error && <div role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-900"><p><strong>{error.status ? `Error ${error.status}` : "Error"}:</strong> {error.message}</p>{error.validationErrors.length > 0 && <ul className="mt-2 list-disc pl-5">{error.validationErrors.map((entry) => <li key={entry}>{entry}</li>)}</ul>}</div>}
-        <button type="submit" disabled={loading || !canSubmit} className="rounded bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900">{loading ? "Investigating…" : "Investigate"}</button>
+        <button type="submit" disabled={loading || !canSubmit} className="rounded-lg bg-[var(--prior-violet)] px-4 py-2.5 text-sm font-bold text-white shadow-md disabled:opacity-50">{loading ? "Investigating…" : "Investigate"}</button>
       </form>
     </details>
   );

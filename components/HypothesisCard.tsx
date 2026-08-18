@@ -20,7 +20,7 @@ const confidenceStyle: Record<SherlockHypothesis["status"], string> = {
 };
 
 const cardStyle: Record<SherlockHypothesis["status"], string> = {
-  active: "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950",
+  active: "border-emerald-200 bg-white",
   weakened: "border-amber-200 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/10",
   rejected: "border-zinc-300 border-dashed bg-zinc-100/80 opacity-80 dark:border-zinc-800 dark:bg-zinc-900/70",
   revived: "border-sky-200 bg-sky-50/40 dark:border-sky-900 dark:bg-sky-950/10",
@@ -28,7 +28,7 @@ const cardStyle: Record<SherlockHypothesis["status"], string> = {
 
 export default function HypothesisCard({ hypothesis, evidenceById }: HypothesisCardProps) {
   return (
-    <article className={`rounded-lg border p-4 ${cardStyle[hypothesis.status]}`}>
+    <article className={`rounded-[var(--prior-radius)] border p-5 shadow-[var(--prior-shadow-sm)] ${cardStyle[hypothesis.status]}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs text-zinc-500">{hypothesis.id} · {hypothesis.origin === "user" ? "seed hypothesis" : "engine-generated hypothesis"}</p>

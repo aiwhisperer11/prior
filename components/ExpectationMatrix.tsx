@@ -34,12 +34,12 @@ function MatrixItems({ items }: { items: MatrixItem[] }) {
 export default function ExpectationMatrix({ matrix }: ExpectationMatrixProps) {
   return (
     <section aria-labelledby="expectation-matrix-heading">
-      <h2 id="expectation-matrix-heading" className="text-xl font-semibold">Expectation matrix</h2>
+      <div><p className="prior-eyebrow">Observed versus expected</p><h2 id="expectation-matrix-heading" className="prior-section-title mt-1">Expectation matrix</h2></div>
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         {quadrants.filter((quadrant) => matrix[quadrant.key].length > 0).map((quadrant) => (
           <article
             key={quadrant.key}
-            className={`rounded-lg border p-4 ${quadrant.key === "expected_absent" ? "border-amber-500 bg-amber-50 dark:bg-amber-950/30" : "border-zinc-200 dark:border-zinc-800"}`}
+            className={`rounded-[var(--prior-radius)] border p-4 shadow-[var(--prior-shadow-sm)] ${quadrant.key === "expected_absent" ? "border-amber-400 bg-[var(--prior-amber-soft)]" : quadrant.key === "unexpected_present" ? "border-cyan-200 bg-[var(--prior-cyan-soft)]" : "border-[var(--prior-border)] bg-[var(--prior-surface)]"}`}
           >
             <h3 className="font-semibold">{quadrant.title}</h3>
             <p className="mb-3 text-sm text-zinc-600 dark:text-zinc-400">{quadrant.description}</p>

@@ -120,14 +120,15 @@ export default function EvidenceScoutSearchPanel({ caseId, missingEvidence, onCa
   const isSearching = action?.state === "authorized" || action?.state === "searching";
 
   return (
-    <section aria-labelledby="evidence-scout-heading" className="rounded-lg border border-violet-300 bg-violet-50 p-5 dark:border-violet-800 dark:bg-violet-950/20">
-      <h2 id="evidence-scout-heading" className="text-xl font-semibold">Evidence Scout</h2>
-      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Search never becomes evidence automatically. Review each candidate and accept it explicitly before it can be included in a re-investigation.</p>
+    <section aria-labelledby="evidence-scout-heading" className="overflow-hidden rounded-[var(--prior-radius-lg)] border border-violet-300 bg-[var(--prior-night-raised)] text-white shadow-[var(--prior-shadow)]">
+      <div className="border-b border-white/10 p-5 sm:p-6"><p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-300">Governed evidence acquisition</p><div className="mt-2 flex flex-wrap items-end justify-between gap-3"><div><h2 id="evidence-scout-heading" className="text-2xl font-bold">Evidence Scout</h2><p className="mt-1 max-w-3xl text-sm text-slate-300">Search never becomes evidence automatically. Review each candidate and accept it explicitly before it can be included in a re-investigation.</p></div><span className="rounded-full bg-amber-300/10 px-3 py-1 text-xs font-bold text-amber-200 ring-1 ring-amber-300/30">Human governed</span></div></div>
+      <ol aria-label="Evidence Scout workflow" className="grid border-b border-white/10 sm:grid-cols-2 lg:grid-cols-4">{["Select evidence gap", "Human authorization", "Review candidates", "Accept before reinvestigation"].map((step, index) => <li key={step} className="flex items-center gap-3 border-white/10 px-5 py-3 text-xs font-semibold text-slate-200 sm:border-r last:border-r-0"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-violet-500 text-[0.68rem] font-black text-white">{index + 1}</span>{step}</li>)}</ol>
+      <div className="p-5 sm:p-6">
 
       {missingEvidence.length > 0 && (
         <label className="mt-3 block text-sm font-medium">
           Missing evidence gap
-          <select value={selectedMissingEvidenceId} onChange={(event) => selectMissingEvidence(event.target.value)} className="mt-1 block w-full rounded border border-zinc-300 bg-transparent p-2 dark:border-zinc-700">
+          <select value={selectedMissingEvidenceId} onChange={(event) => selectMissingEvidence(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-950/40 p-2.5 text-white">
             {missingEvidence.map((item) => <option key={item.id} value={item.id}>{item.id}: {item.description.slice(0, 80)}</option>)}
             <option value="">Other (describe below)</option>
           </select>
@@ -135,10 +136,10 @@ export default function EvidenceScoutSearchPanel({ caseId, missingEvidence, onCa
       )}
       <label className="mt-3 block text-sm font-medium">
         What are we looking for
-        <textarea rows={2} value={queryIntent} onChange={(event) => setQueryIntent(event.target.value)} className="mt-1 block w-full rounded border border-zinc-300 bg-transparent p-2 dark:border-zinc-700" />
+        <textarea rows={2} value={queryIntent} onChange={(event) => setQueryIntent(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-950/40 p-2.5 text-white" />
       </label>
 
-      <button type="button" disabled={authorizing || isSearching || !queryIntent.trim()} onClick={authorizeSearch} className="mt-3 rounded bg-violet-800 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+      <button type="button" disabled={authorizing || isSearching || !queryIntent.trim()} onClick={authorizeSearch} className="mt-4 rounded-lg bg-[var(--prior-violet)] px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-950/30 transition hover:bg-violet-500 disabled:opacity-50">
         {authorizing || isSearching ? "Searching…" : "Authorize search"}
       </button>
 
@@ -150,9 +151,9 @@ export default function EvidenceScoutSearchPanel({ caseId, missingEvidence, onCa
         <ul className="mt-4 space-y-3">
           {action.candidates.length === 0 && <li className="text-sm text-zinc-600 dark:text-zinc-400">No candidates were found. Absence of a search result is not evidence of anything.</li>}
           {action.candidates.map((candidate) => (
-            <li key={candidate.candidate_id} className="rounded border border-violet-200 bg-white p-3 text-sm dark:border-violet-900 dark:bg-zinc-900">
+            <li key={candidate.candidate_id} className="rounded-xl border border-slate-700 bg-slate-950/40 p-4 text-sm">
               <p className="font-semibold">{candidate.document_title ?? candidate.publisher ?? candidate.source_url}</p>
-              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{candidate.tier} · {candidate.verification_status} · reliability: {candidate.source_reliability}</p>
+              <p className="mt-1 text-xs text-slate-400">{candidate.tier} · {candidate.verification_status} · reliability: {candidate.source_reliability}</p>
               <p className="mt-1"><a href={candidate.source_url} target="_blank" rel="noreferrer" className="underline">{candidate.source_url}</a></p>
               <p className="mt-1">{candidate.claim_summary}</p>
               {candidate.cited_text && <blockquote className="mt-1 border-l-2 border-violet-400 pl-2 italic">&ldquo;{candidate.cited_text}&rdquo;</blockquote>}
@@ -168,6 +169,7 @@ export default function EvidenceScoutSearchPanel({ caseId, missingEvidence, onCa
           ))}
         </ul>
       )}
+      </div>
     </section>
   );
 }

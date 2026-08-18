@@ -17,15 +17,17 @@ export default function SherlockInvestigationView({ investigation, showLegacyEvi
   const primeHypothesis = investigation.prime_suspect ? investigation.hypotheses.find((hypothesis) => hypothesis.id === investigation.prime_suspect!.hypothesis_id) : undefined;
   const investigationState = investigation.meta.iteration === 1 ? "Initial investigation" : "Updated investigation";
 
-  return <article className="space-y-9">
-    <header>
-      <p className="text-sm text-zinc-500">Schema {investigation.schema_version} · Case {investigation.meta.case_id}</p>
+  return <article className="space-y-7">
+    <header className="prior-card p-5 sm:p-6">
+      <p className="prior-eyebrow">Schema {investigation.schema_version} · Case {investigation.meta.case_id}</p>
       <p className="mt-1 text-sm font-medium">{investigationState}</p>
-      <div className="mt-1 flex flex-wrap items-center gap-3"><h1 id="investigation-result-heading" className="text-3xl font-bold">{investigation.meta.case_title}</h1><span className="rounded-full border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700">Iteration {investigation.meta.iteration}</span></div>
-      <p className="mt-1 text-zinc-600 dark:text-zinc-400">{investigation.meta.domain}</p>
-      <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2"><div><dt className="font-medium">Observed outcome</dt><dd>{investigation.case.observed_outcome}</dd></div><div><dt className="font-medium">Expected behavior</dt><dd>{investigation.case.expected_behavior}</dd></div></dl>
+      <div className="mt-1 flex flex-wrap items-center gap-3"><h1 className="text-2xl font-bold text-[var(--prior-night)]">{investigation.meta.case_title}</h1><span className="rounded-full border border-slate-300 px-2 py-1 text-sm">Iteration {investigation.meta.iteration}</span></div>
+      <p className="mt-1 text-slate-600">{investigation.meta.domain}</p>
+      <dl className="mt-5 grid gap-3 text-sm md:grid-cols-2"><div className="rounded-xl bg-slate-50 p-4"><dt className="prior-eyebrow">Observed outcome</dt><dd className="mt-2 leading-6">{investigation.case.observed_outcome}</dd></div><div className="rounded-xl bg-slate-50 p-4"><dt className="prior-eyebrow">Expected behavior</dt><dd className="mt-2 leading-6">{investigation.case.expected_behavior}</dd></div></dl>
       {showLegacyEvidence && investigation.case.evidence.some((item) => item.content.trim()) && <details className="mt-4 text-sm"><summary className="cursor-pointer font-medium">Case evidence</summary><ul className="mt-2 space-y-2">{investigation.case.evidence.filter((item) => item.content.trim()).map((item) => <li key={item.id} className={item.provided_in_iteration === investigation.meta.iteration ? "rounded border border-sky-400 bg-sky-50 p-2 dark:bg-sky-950/20" : ""}><strong>{item.id} · {item.label}</strong> (iteration {item.provided_in_iteration}){item.provided_in_iteration === investigation.meta.iteration ? " · New evidence" : ""}: {item.content}</li>)}</ul></details>}
     </header>
+
+    <a href="#prime-suspect-heading" className="flex items-center justify-between gap-5 rounded-[var(--prior-radius)] border border-violet-200 bg-[var(--prior-violet-soft)] p-5 shadow-sm"><span><span className="prior-eyebrow text-violet-700">Root cause assessment</span><span className="mt-1 block text-lg font-bold text-violet-950">{investigation.root_cause_status}{investigation.prime_suspect ? ` · Prime suspect ${investigation.prime_suspect.hypothesis_id}` : ""}</span></span><span aria-hidden="true" className="text-xl text-violet-700">↓</span></a>
 
     <ExpectationMatrix matrix={investigation.expectation_matrix} />
 
