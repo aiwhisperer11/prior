@@ -1,4 +1,4 @@
-# PEIOR
+# RPIOR
 
 > **Most AI gives you the most plausible answer. Sherlock earns the answer by trying to prove itself wrong.**
 
