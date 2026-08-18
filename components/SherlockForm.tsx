@@ -5,13 +5,11 @@ import { useState, type FormEvent } from "react";
 import caseBInput from "@/examples/case-b.json";
 import baselineSnapshot from "@/examples/case-b-baseline-snapshot.json";
 import iteration2Snapshot from "@/examples/case-b-iteration2-snapshot.json";
-import gbpRubCase from "@/examples/gbp-rub-june-2023.json";
 import cloudflareWafCase from "@/examples/case-cloudflare-waf-2019.json";
 import googleSecOpsCase from "@/examples/case-google-secops-2026.json";
 import { parseSherlockInvestigation } from "@/lib/investigation-validation";
 import { parseInvestigationApiResponse, type InvestigationApiResponse } from "@/lib/investigation-response";
 import type { InvestigationRequest, SherlockInvestigation } from "@/types/sherlock";
-import type { EvidenceScoutResult } from "@/types/evidence-scout";
 import type { ActiveRequestMode } from "@/lib/investigation-view-state";
 
 export type MemoryUpdate = Pick<InvestigationApiResponse, "precedents" | "unclassified_memory" | "suspected_duplicate_memory" | "memory" | "storage">;
@@ -19,10 +17,8 @@ export type MemoryUpdate = Pick<InvestigationApiResponse, "precedents" | "unclas
 interface SherlockFormProps {
   onSnapshot: (snapshot: SherlockInvestigation) => void;
   onSnapshotsLoaded: (snapshots: SherlockInvestigation[]) => void;
-  onScout: (scout: EvidenceScoutResult) => void;
   onMemory: (update: MemoryUpdate | null) => void;
   onStart: (mode: ActiveRequestMode) => void;
-  investigating: boolean;
 }
 
 interface FormEvidence {
@@ -58,7 +54,7 @@ function apiErrorFromResponse(status: number, body: unknown): ApiError {
   return { status, message: `Request failed with status ${status}`, validationErrors: [] };
 }
 
-export default function SherlockForm({ onSnapshot, onSnapshotsLoaded, onScout, onMemory, onStart, investigating }: SherlockFormProps) {
+export default function SherlockForm({ onSnapshot, onSnapshotsLoaded, onMemory, onStart }: SherlockFormProps) {
   const [caseId, setCaseId] = useState("case-ui");
   const [caseTitle, setCaseTitle] = useState("Untitled investigation");
   const [domain, setDomain] = useState("General investigation");
@@ -111,8 +107,6 @@ export default function SherlockForm({ onSnapshot, onSnapshotsLoaded, onScout, o
     setUserHypotheses(googleSecOpsCase.user_hypotheses ?? []);
     setError(null);
   }
-  async function startGbpRub() { setLoading(true); onStart("evidence_scout"); try { const response = await fetch("/api/investigate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(gbpRubCase) }); const body: unknown = await response.json(); const parsed = parseInvestigationApiResponse(body); if (parsed.ok) { if (parsed.response.evidence_scout) onScout(parsed.response.evidence_scout); onMemory({ precedents: parsed.response.precedents, unclassified_memory: parsed.response.unclassified_memory, suspected_duplicate_memory: parsed.response.suspected_duplicate_memory, memory: parsed.response.memory, storage: parsed.response.storage }); onSnapshot(parsed.response.investigation); } else setError({ status: response.status, message: "Evidence Scout request failed.", validationErrors: parsed.errors.map((error) => error.message) }); } finally { setLoading(false); } }
-
   function loadOfflineSnapshots(includeIteration2: boolean) {
     const parsed = parseSherlockInvestigation(baselineSnapshot);
     const parsedIteration2 = parseSherlockInvestigation(iteration2Snapshot);
@@ -203,7 +197,6 @@ export default function SherlockForm({ onSnapshot, onSnapshotsLoaded, onScout, o
           <button type="button" onClick={loadExample} className="rounded border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">Load example</button>
           <button type="button" onClick={loadCloudflareWafExample} className="rounded border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">Load Cloudflare WAF example</button>
           <button type="button" onClick={loadGoogleSecOpsExample} className="rounded border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">Load Google SecOps example</button>
-          <button type="button" disabled={loading || investigating} onClick={startGbpRub} className="rounded border border-violet-400 px-3 py-2 text-sm">Investigate GBP/RUB fixture</button>
           <div>
             <p className="text-sm font-medium">Example case</p>
             <div className="mt-1 flex flex-wrap gap-2">

@@ -13,6 +13,8 @@ import {
   userHypothesisSeedViolations,
   type UserHypothesisSeed,
 } from "@/lib/server/investigation-assertions-shared";
+import { isLegacyCompatiblePreviousSnapshot } from "@/lib/server/evidence-scout-legacy-schema";
+import type { ResolvedAcceptedCandidate } from "@/lib/server/evidence-scout-store";
 import { buildInvestigationUserMessage, SYSTEM_PROMPT } from "@/lib/sherlock-prompt";
 import { OPENAI_INVESTIGATION_WIRE_SCHEMA } from "@/lib/wire-schema";
 import type {
@@ -49,7 +51,7 @@ export type InvestigationEngineResult =
     };
 
 export type InvestigationPreparationResult =
-  | { ok: true; request: InvestigationIterationRequest }
+  | { ok: true; request: InvestigationIterationRequest; candidateLinks: Array<{ candidateId: string; evidenceId: string }> }
   | { ok: false; message: string };
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -117,8 +119,16 @@ export function isInvestigationRequest(value: unknown): value is InvestigationRe
   );
 }
 
-function isNewEvidence(value: unknown): value is NewEvidenceInput[] {
-  return Array.isArray(value) && value.length > 0 && value.every((item) => {
+/**
+ * Optional now (undefined/empty is valid): a follow-up may add evidence
+ * purely via resolvedCandidateEvidence (accepted Evidence Scout candidates)
+ * with no manually-typed new_evidence at all. The "at least one new item
+ * total" floor is enforced separately in prepareInvestigationRequest,
+ * across both sources combined.
+ */
+function isValidNewEvidence(value: unknown): value is NewEvidenceInput[] | undefined {
+  if (value === undefined) return true;
+  return Array.isArray(value) && value.every((item) => {
     if (item === null || typeof item !== "object") return false;
     const evidence = item as Record<string, unknown>;
     return isNonEmptyString(evidence.label) && isNonEmptyString(evidence.content);
@@ -137,48 +147,108 @@ function nextEvidenceNumber(previousSnapshot: SherlockInvestigation): number {
  * shape. Preserves an existing provided_in_iteration (prior evidence carried
  * forward into a follow-up must keep the iteration it actually entered on);
  * stamps fallbackIteration only when the wire input never carried one, which
- * is the normal case for a fresh baseline request.
+ * is the normal case for a fresh baseline request. provenance is preserved
+ * verbatim when already present (a previously-linked Evidence Scout item
+ * carried forward from a previous_snapshot); manually-typed evidence always
+ * has provenance null, never inferred here or anywhere else -- provenance
+ * is only ever attached at construction time, by prepareInvestigationRequest,
+ * from a server-side-resolved accepted candidate (see resolveAcceptedCandidateEvidence).
  */
 function toCanonicalEvidenceItem(evidence: InvestigationRequestEvidence | EvidenceItem, fallbackIteration: number): EvidenceItem {
   const existing = (evidence as Partial<EvidenceItem>).provided_in_iteration;
+  const existingProvenance = (evidence as Partial<EvidenceItem>).provenance;
   return {
     id: evidence.id,
     label: evidence.label,
     content: evidence.content,
     provided_in_iteration: typeof existing === "number" ? existing : fallbackIteration,
+    provenance: existingProvenance ?? null,
   };
 }
 
-/** Validates and normalizes either a baseline request or an iteration request. */
-export function prepareInvestigationRequest(value: unknown): InvestigationPreparationResult {
+function isValidResolvedCandidateEvidence(value: unknown): value is ResolvedAcceptedCandidate[] {
+  return Array.isArray(value);
+}
+
+/**
+ * Validates and normalizes either a baseline request or an iteration
+ * request. resolvedCandidateEvidence is never read from the client body --
+ * it is resolved server-side (lib/server/evidence-scout-store.ts's
+ * resolveAcceptedCandidatesForFollowUp) from durable candidate rows BEFORE
+ * this function is called, by the caller (app/api/investigate/route.ts).
+ * Point 7: the follow-up wire request only ever carries
+ * accepted_candidate_ids (opaque references); this function never sees or
+ * trusts a client-constructed provenance object.
+ */
+export function prepareInvestigationRequest(
+  value: unknown,
+  resolvedCandidateEvidence: ResolvedAcceptedCandidate[] = [],
+): InvestigationPreparationResult {
+  if (!isValidResolvedCandidateEvidence(resolvedCandidateEvidence)) {
+    return { ok: false, message: "resolvedCandidateEvidence must be an array" };
+  }
+
   if (value !== null && typeof value === "object") {
     const body = value as Record<string, unknown>;
     if (body.previous_snapshot !== undefined) {
-      if (!isSherlockInvestigation(body.previous_snapshot)) {
+      // Point 12: the relaxed legacy validator, never the strict one, for
+      // accepting an incoming previous_snapshot -- a real investigation
+      // persisted before the provenance field existed literally lacks the
+      // key (not null, absent) on its evidence items, and the strict
+      // validator (used for fresh model output) would reject it.
+      if (!isLegacyCompatiblePreviousSnapshot(body.previous_snapshot)) {
         return { ok: false, message: "previous_snapshot must be a valid Sherlock investigation" };
       }
+      const previousSnapshotCandidate = body.previous_snapshot;
       if (
-        !isNonEmptyString(body.previous_snapshot.case.observed_outcome) ||
-        !isNonEmptyString(body.previous_snapshot.case.expected_behavior) ||
-        body.previous_snapshot.case.evidence.length === 0
+        !isNonEmptyString(previousSnapshotCandidate.case.observed_outcome) ||
+        !isNonEmptyString(previousSnapshotCandidate.case.expected_behavior) ||
+        previousSnapshotCandidate.case.evidence.length === 0
       ) {
         return { ok: false, message: "previous_snapshot requires observed_outcome, expected_behavior, and at least one evidence item" };
       }
-      if (!isNewEvidence(body.new_evidence)) {
-        return { ok: false, message: "new_evidence must contain at least one label and content pair" };
+      if (!isValidNewEvidence(body.new_evidence)) {
+        return { ok: false, message: "new_evidence, when supplied, must contain only label/content pairs" };
+      }
+      const manualEvidenceInput = body.new_evidence ?? [];
+      if (manualEvidenceInput.length === 0 && resolvedCandidateEvidence.length === 0) {
+        return { ok: false, message: "a follow-up must supply new_evidence or accepted_candidate_ids" };
       }
       if (!isValidUserHypotheses(body.user_hypotheses)) {
         return { ok: false, message: "user_hypotheses must be an array of non-empty, non-duplicate strings when supplied" };
       }
 
-      const previousSnapshot = body.previous_snapshot;
+      // toCanonicalEvidenceItem preserves an existing provided_in_iteration
+      // and provenance verbatim; a legacy previous_snapshot's evidence items
+      // (which may structurally lack the provenance key) are normalized to
+      // provenance: null here, same as any other already-canonical item.
+      const previousSnapshot: SherlockInvestigation = {
+        ...previousSnapshotCandidate,
+        case: {
+          ...previousSnapshotCandidate.case,
+          evidence: previousSnapshotCandidate.case.evidence.map((evidence) => toCanonicalEvidenceItem(evidence, evidence.provided_in_iteration)),
+        },
+      };
       const iteration = previousSnapshot.meta.iteration + 1;
       const firstEvidenceNumber = nextEvidenceNumber(previousSnapshot);
-      const newEvidence = body.new_evidence.map((evidence, index) => ({
+      const manualEvidence = manualEvidenceInput.map((evidence, index) => ({
         id: `E${firstEvidenceNumber + index}`,
         label: evidence.label,
         content: evidence.content,
         provided_in_iteration: iteration,
+        provenance: null,
+      }));
+      const candidateEvidence = resolvedCandidateEvidence.map((resolved, index) => ({
+        id: `E${firstEvidenceNumber + manualEvidence.length + index}`,
+        label: resolved.label,
+        content: resolved.content,
+        provided_in_iteration: iteration,
+        provenance: resolved.provenance,
+      }));
+      const newEvidence = [...manualEvidence, ...candidateEvidence];
+      const candidateLinks = resolvedCandidateEvidence.map((resolved, index) => ({
+        candidateId: resolved.candidateId,
+        evidenceId: candidateEvidence[index]!.id,
       }));
 
       return {
@@ -198,6 +268,7 @@ export function prepareInvestigationRequest(value: unknown): InvestigationPrepar
           // by computeUserHypothesisSeeds inside runSherlockInvestigation.
           user_hypotheses: body.user_hypotheses,
         },
+        candidateLinks,
       };
     }
   }
@@ -212,6 +283,7 @@ export function prepareInvestigationRequest(value: unknown): InvestigationPrepar
   return {
     ok: true,
     request: { ...value, iteration: 1, evidence: value.evidence.map((evidence) => toCanonicalEvidenceItem(evidence, 1)) },
+    candidateLinks: [],
   };
 }
 

@@ -14,17 +14,19 @@ import type { MemoryUpdate } from "@/components/SherlockForm";
 
 interface FollowUpEvidenceFormProps {
   previousSnapshot: SherlockInvestigation;
+  /** Point 7: only opaque candidate_id references, never provenance content -- the server resolves everything else from durable candidate rows. */
+  acceptedCandidateIds?: string[];
   onSnapshot: (snapshot: SherlockInvestigation) => void;
   onMemory: (update: MemoryUpdate) => void;
 }
 
-export default function FollowUpEvidenceForm({ previousSnapshot, onSnapshot, onMemory }: FollowUpEvidenceFormProps) {
+export default function FollowUpEvidenceForm({ previousSnapshot, acceptedCandidateIds = [], onSnapshot, onMemory }: FollowUpEvidenceFormProps) {
   const [state, dispatch] = useReducer(followUpFormReducer, initialFollowUpFormState);
   const [memoryNotice, setMemoryNotice] = useState<string | null>(null);
   const inFlight = useRef(false);
   const { evidence, loading, error } = state;
 
-  const canSubmit = evidence.length > 0 && evidence.every((item) => item.label.trim() && item.content.trim());
+  const canSubmit = (evidence.length > 0 && evidence.every((item) => item.label.trim() && item.content.trim())) || acceptedCandidateIds.length > 0;
 
   function updateEvidence(index: number, field: "label" | "content", value: string) {
     dispatch({ type: "evidence-changed", index, field, value });
@@ -42,7 +44,11 @@ export default function FollowUpEvidenceForm({ previousSnapshot, onSnapshot, onM
       const response = await fetch("/api/investigate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ previous_snapshot: previousSnapshot, new_evidence: evidence }),
+        body: JSON.stringify({
+          previous_snapshot: previousSnapshot,
+          ...(evidence.length > 0 ? { new_evidence: evidence } : {}),
+          ...(acceptedCandidateIds.length > 0 ? { accepted_candidate_ids: acceptedCandidateIds } : {}),
+        }),
         signal: controller.signal,
       });
       const body: unknown = await response.json().catch(() => null);
@@ -78,7 +84,7 @@ export default function FollowUpEvidenceForm({ previousSnapshot, onSnapshot, onM
   }
 
   return <section aria-labelledby="new-evidence-heading" className="rounded-lg border border-sky-300 bg-sky-50 p-5 dark:bg-sky-950/20">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 id="new-evidence-heading" className="text-xl font-semibold">New evidence</h2><p className="text-sm text-zinc-600 dark:text-zinc-400">Re-investigate iteration {previousSnapshot.meta.iteration + 1} from the latest snapshot.</p></div><button type="button" disabled={loading} onClick={() => dispatch({ type: "example-loaded", evidence: followUpExample.map((item) => ({ ...item })) })} className="rounded border border-sky-400 px-3 py-2 text-sm disabled:opacity-50">Add example follow-up evidence</button></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 id="new-evidence-heading" className="text-xl font-semibold">New evidence</h2><p className="text-sm text-zinc-600 dark:text-zinc-400">Re-investigate iteration {previousSnapshot.meta.iteration + 1} from the latest snapshot.</p>{acceptedCandidateIds.length > 0 && <p className="text-sm text-violet-800 dark:text-violet-300">{acceptedCandidateIds.length} accepted Evidence Scout candidate(s) will be included.</p>}</div><button type="button" disabled={loading} onClick={() => dispatch({ type: "example-loaded", evidence: followUpExample.map((item) => ({ ...item })) })} className="rounded border border-sky-400 px-3 py-2 text-sm disabled:opacity-50">Add example follow-up evidence</button></div>
     <form onSubmit={reinvestigate} className="mt-4 space-y-3">
       {evidence.map((item, index) => <div key={index} className="grid gap-2 md:grid-cols-[1fr_2fr_auto]"><input required disabled={loading} value={item.label} onChange={(event) => updateEvidence(index, "label", event.target.value)} aria-label={`New evidence ${index + 1} label`} placeholder="Label" className="rounded border border-zinc-300 bg-transparent p-2 disabled:opacity-50 dark:border-zinc-700" /><textarea required disabled={loading} rows={2} value={item.content} onChange={(event) => updateEvidence(index, "content", event.target.value)} aria-label={`New evidence ${index + 1} content`} placeholder="Content" className="rounded border border-zinc-300 bg-transparent p-2 disabled:opacity-50 dark:border-zinc-700" /><button type="button" disabled={loading} onClick={() => dispatch({ type: "evidence-removed", index })} className="text-sm text-red-700 disabled:opacity-50">Remove</button></div>)}
       <div className="flex flex-wrap items-center gap-2"><button type="button" disabled={loading} onClick={() => dispatch({ type: "evidence-added" })} className="rounded border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-700">Add evidence</button><button type="submit" disabled={loading || !canSubmit} className="inline-flex items-center gap-2 rounded bg-sky-800 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{loading && <span aria-hidden="true" className="size-3 animate-spin rounded-full border-2 border-current border-r-transparent" />}{loading ? "Investigating…" : "Re-investigate"}</button></div>

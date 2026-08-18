@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { Client } from "pg";
+
 import { POST } from "../app/api/investigate/route";
 import type { AuditArtifact, AuditStorage } from "../lib/server/audit-storage";
 import { runInvestigationFlow } from "../lib/server/investigation-flow";
@@ -85,6 +87,21 @@ test("Cockroach configuration requires verified TLS from DATABASE_URL", () => {
   const options = cockroachPoolOptions("postgresql://user:password@cluster.cockroachlabs.cloud:26257/defaultdb?sslmode=verify-full");
   assert.deepEqual(options.ssl, { rejectUnauthorized: true });
   assert.throws(() => cockroachPoolOptions("postgresql://localhost:26257/defaultdb"), MemoryStoreUnavailableError);
+});
+
+test("Cockroach connection preserves the intended host when credentials contain percent-encoded reserved characters", () => {
+  const password = encodeURIComponent("synthetic@:/#?%password");
+  const databaseUrl = `postgresql://synthetic-user:${password}@synthetic-host.invalid:26257/defaultdb?sslmode=verify-full`;
+  const options = cockroachPoolOptions(databaseUrl);
+  const client = new Client(options);
+  const connection = (client as unknown as {
+    connectionParameters: { host: string; port: number; database: string; ssl: object };
+  }).connectionParameters;
+
+  assert.equal(connection.host, "synthetic-host.invalid");
+  assert.equal(connection.port, 26257);
+  assert.equal(connection.database, "defaultdb");
+  assert.deepEqual(connection.ssl, {});
 });
 
 test("a CockroachDB failure is surfaced and never falls back to local memory", async () => {
