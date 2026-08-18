@@ -1,325 +1,196 @@
 # PRIOR
 
-> **Most AI gives you the most plausible answer. Sherlock earns the answer by trying to prove itself wrong.**
+> **Falsification-driven intelligence, governed by evidence.**
 
-**Demo video**  
-https://www.youtube.com/watch?v=xkpN5Y9lYGg
+PRIOR is a causal investigation system for high-stakes questions where a plausible answer is not enough. It forces every conclusion to compete with alternatives, exposes missing evidence, proposes the next discriminating test, and preserves a complete audit trail as the investigation evolves.
 
-**Live demo**  
-https://sherlock-engine.vercel.app/
+Most AI systems optimize for a confident response. PRIOR optimizes for a conclusion that has survived an attempt to prove it wrong.
 
-**Repository**  
-https://github.com/aiwhisperer11/sherlock-engine
+## Why PRIOR
 
----
+Large language models are excellent at producing coherent explanations. That becomes dangerous when coherence is mistaken for evidence.
 
-## Why I built Sherlock
+PRIOR changes the investigation process itself:
 
-I started this project with a simple observation.
+- Evidence is kept separate from interpretation.
+- Competing hypotheses remain visible and scored.
+- Every hypothesis states what would refute it.
+- Missing observations are treated as first-class information.
+- The system selects the next test with the greatest discriminating power.
+- New evidence updates the investigation without rewriting its history.
+- External search requires explicit human authorization.
+- Search results never become evidence automatically.
 
-Large language models are very good at producing plausible explanations. They are much less disciplined at looking for reasons why those explanations might be wrong.
+The objective is not to make the model produce a better-sounding answer. It is to make the system **earn confidence**.
 
-In other words, they suffer from the same confirmation bias that affects human investigations.
+## What it does
 
-Once a model finds a coherent explanation, it naturally tends to reinforce it instead of actively searching for competing ones.
+PRIOR turns an incident or complex event into a structured, evolving investigation:
 
-That is useful if your goal is to answer questions.
+- **Executive** provides the causal assessment, demonstrated impact, prime suspect, and immediate decision.
+- **Investigator** exposes the evidence ledger, timeline, expectation matrix, anomalies, competing hypotheses, confidence scores, missing evidence, and next test.
+- **Audit & lineage** preserves case, snapshot, source, model, prompt, precedent, and artifact provenance.
+- **Evidence Scout** searches for a specific evidence gap only after human authorization, returns a bounded set of candidates, and requires explicit acceptance before reinvestigation.
 
-It is dangerous if your goal is to investigate.
-
-Sherlock is an experiment built around a different question:
-
-> **What happens if we force an LLM to think like an investigator instead of an assistant?**
-
-Not by asking it to "reason better", but by changing the investigation itself.
-
-Instead of producing the first plausible explanation, Sherlock forces the model to work under a different set of constraints:
-
-- Every conclusion must compete with alternative explanations.
-- Every hypothesis must explain what evidence supports it.
-- Every hypothesis must explain what evidence contradicts it.
-- Every hypothesis must declare exactly what observation would prove it wrong.
-- Every new piece of evidence must update the existing investigation instead of replacing it.
-
-The objective is not to make the model produce a better answer.
-
-The objective is to make it **earn** the answer.
-
----
-
-## What Sherlock does
-
-Sherlock receives four things:
-
-- **What happened**
-- **What should have happened**
-- **The available evidence**
-- **Optionally, the investigator's own hypotheses**
-
-Instead of returning a single explanation, it builds a structured investigation.
-
-The investigation includes:
-
-- An **Expectation Matrix** that separates expected and unexpected observations, paying special attention to expected events that never occurred.
-- **Competing hypotheses** that evolve as new evidence is introduced.
-- A **Hypothesis Graveyard** that preserves rejected explanations together with the exact conditions that would make them plausible again.
-- **Missing evidence**, ranked by its ability to reduce uncertainty.
-- The **single next test** with the highest discriminating power between the leading hypotheses.
-
-Every investigation can continue as new evidence appears.
-
-Reasoning is no longer a one-shot answer.
-
-It becomes an evolving investigation.
-## Current status
-
-Current implementation includes:
-
-- The complete contract is [`lib/investigation.schema.json`](../lib/investigation.schema.json).
-- [`lib/wire-schema.ts`](../lib/wire-schema.ts) derives the strict OpenAI wire
-  schema without mutating the canonical contract.
-- The API validates every model response with AJV and retries one invalid
-  response before returning a 502 with validation details.
-- The browser supports a baseline investigation and evidence-driven follow-up
-  iterations. It keeps client-only, append-only snapshots and renders the
-  latest one plus a diff of the two latest snapshots.
-- The UI can replay Case B baseline and iteration 2 offline, without calling
-  the API.
-
-There is no database, authentication, persistence, routing, or cross-case
-memory. Snapshots exist only for the current browser session.
-
-## How this was built: Codex + GPT-5.6
-
-### Codex: the builder
-
-Sherlock was built end-to-end in disciplined Codex sessions, each driven by a
-written brief with explicit acceptance criteria and a session rule: *one
-finished block beats three half-started ones — unfinished work is finished or
-reverted, and the repo stays green.*
-
-- **Block 1 — Contract:** collapsed a two-schema split into a single canonical
-  contract ([`lib/investigation.schema.json`](../lib/investigation.schema.json))
-  with a programmatically derived OpenAI wire schema and mirrored types.
-- **Block 2B — Reasoning:** wired the falsification prompt to the engine and
-  added a semantic evaluation harness.
-- **Block 3 — UI:** built the full investigation view, consuming canonical
-  field names with no response remapping and schema-backed client validation.
-- **Block 4 — Iteration loop:** added evidence-driven re-investigation with
-  server-continued evidence IDs and a client-computed learning diff.
-
-The briefs Codex executed are preserved in [`docs/`](.) as a record of the
-method. Codex /feedback session ID for the main build: 019f7a1d-9a54-7df3-a3ce-09c140b083f7.
-
-### GPT-5.6: the investigator
-
-The reasoning core runs on **`gpt-5.6-terra`** (GPT-5.6 family, Terra tier)
-using **Structured Outputs in strict mode**. The model must return a JSON
-snapshot conforming to the canonical investigation schema, and every response
-is re-validated server-side with AJV before it reaches the client.
-
-GPT-5.6 is not used as a chat wrapper: the system prompt is a versioned
-reasoning specification ([`docs/investigation-engine.md`](investigation-engine.md))
-with eleven numbered investigation principles (P1–P11), an output contract,
-and iteration rules. Every hypothesis must declare what would refute it; every
-absence must be anchored to declared expected behavior and observable
-instrumentation; every score ships with its explanation.
-
-### Prompt evaluation
-
-The investigation prompt (v3.0) was evaluated using the Block 2B semantic
-evaluation suite.
-
-During the first live evaluation, one assertion failed:
-
-- `next_test structurally discriminates the prime suspect`
-
-Inspection of the generated investigation artifact showed that the model had
-already produced a valid discriminating test between competing hypotheses (H3
-and H4). The failure was traced to a false negative in the evaluation logic,
-not to the prompt itself.
-
-The temporary prompt experiment was discarded, the original v3.0 prompt was
-restored unchanged, and the evaluator was rewritten to verify structural
-discrimination rather than relying on prose heuristics.
-
-Regression tests were added for the evaluator, and the subsequent live
-evaluation passed all assertions (11/11).
-
-This project therefore treats evaluation artifacts as the source of truth and
-prefers correcting the measurement instrument before modifying prompts.
-
-## Setup
-
-Create a local, ignored environment file at the repository root:
+## The governed evidence loop
 
 ```text
-OPENAI_API_KEY="your-key"
+Case evidence
+    ↓
+Causal assessment and competing hypotheses
+    ↓
+Highest-value missing evidence gap
+    ↓
+Explicit human authorization
+    ↓
+Bounded external search
+    ↓
+Human candidate review
+    ↓
+Accepted evidence
+    ↓
+Versioned reinvestigation with preserved lineage
 ```
 
-Use `.env.local`; it is covered by `.gitignore`. Do not commit it or paste its
-contents into issues, logs, or chat.
+The central rule is simple:
 
-```bash
-npm run dev
-```
+> **Search never becomes evidence automatically.**
 
-Open `http://localhost:3000`.
+## Evidence Scout
 
-## Using the app
+Evidence Scout is a governed, asynchronous evidence-acquisition workflow.
 
-1. Select **Load example** to populate the Case B baseline form, then select
-   **Investigate** to call `POST /api/investigate`.
-2. On a rendered result, select **Add example follow-up evidence**, then
-   **Re-investigate**. The server validates the prior snapshot, assigns the
-   next evidence ID (`E5` for Case B), and creates iteration 2.
-3. The latest snapshot is rendered. The Learning Diff shows confidence changes,
-   status transitions, entries into the Hypothesis Graveyard, and the model's
-   learning summary. Evidence introduced in the latest iteration is marked in
-   the case evidence list.
-4. For a no-network demo, use **View initial investigation** or **View updated
-   investigation** under **Example case**.
+1. PRIOR identifies the missing evidence with the greatest potential to reduce uncertainty.
+2. A human reviews the proposed search target and explicitly authorizes it.
+3. The action is persisted before a reference is dispatched to SQS.
+4. A concurrency-limited Lambda performs a bounded OpenAI `web_search`.
+5. Candidates are stored in CockroachDB with provenance and rationale.
+6. A human accepts or rejects each candidate.
+7. Only accepted candidates can enter a follow-up investigation.
 
-## Investigation API
+Governance is enforced in code:
 
-`POST /api/investigate` supports two request modes.
-
-### Baseline
-
-```json
-{
-  "case_id": "case-b-checkout",
-  "case_title": "Checkout 500 errors, 23:10-23:40",
-  "domain": "IT incident",
-  "observed_outcome": "...",
-  "expected_behavior": "...",
-  "evidence": [{ "id": "E1", "label": "...", "content": "..." }],
-  "user_hypotheses": ["..."]
-}
-```
-
-`observed_outcome`, `expected_behavior`, and at least one complete evidence
-item are required.
-
-### Follow-up iteration
-
-```json
-{
-  "previous_snapshot": { "...": "full SherlockInvestigation" },
-  "new_evidence": [{ "label": "Certificate audit", "content": "..." }]
-}
-```
-
-The server validates `previous_snapshot` against the canonical schema, carries
-the existing case data forward, appends server-numbered evidence, and sets
-`meta.iteration` to the previous iteration plus one. The model receives the
-full previous snapshot and the new-evidence block described in the frozen
-prompt specification.
+- maximum two search calls per action;
+- maximum five candidates per action;
+- daily action budget;
+- SQS batch size of one;
+- maximum Lambda concurrency of three;
+- database-backed claim and idempotency transitions;
+- partial batch failures, retries, and DLQ recovery;
+- sanitized structured logs that exclude payloads and credentials.
 
 ## Architecture
-
-### PRIOR Evidence Scout
-
-![PRIOR Evidence Scout architecture](docs/assets/evidence-scout-architecture.svg)
-
-<details>
-<summary>Mermaid source</summary>
 
 ```mermaid
 flowchart TD
   subgraph Sync["Synchronous UI and API"]
-    User["User / browser"] --> UI["Next.js UI"]
+    User["User / browser"] --> UI["PRIOR Next.js UI"]
     UI --> InvestigationAPI["Investigation API"]
     InvestigationAPI <--> DB[("CockroachDB<br/>actions, candidates, snapshots")]
   end
 
   subgraph Human["Human authorization boundary"]
     UI --> Gate{"Explicit human authorization"}
-    Gate --> SearchAPI["Evidence Scout authorization API"]
+    Gate --> SearchAPI["Evidence Scout API"]
   end
 
   subgraph Async["Governed asynchronous execution"]
     SearchAPI -->|"persist authorized action"| DB
     SearchAPI -->|"enqueue action reference"| SQS["SQS queue"]
-    SQS --> ESM["Event Source Mapping<br/>batch size 1<br/>maximum concurrency 3"]
+    SQS -->|"poll; retry after visibility timeout"| ESM["Event Source Mapping<br/>batch 1 · concurrency 3"]
     ESM --> Lambda["Evidence Scout Lambda"]
-    Secrets["Secrets Manager<br/>database URL and OpenAI API key"] --> Lambda
+    Secrets["AWS Secrets Manager"] --> Lambda
     Lambda --> Search["OpenAI web_search"]
     Lambda -->|"persist state and candidates"| DB
   end
 
   subgraph Recovery["Observability and recovery"]
-    Lambda -.->|"structured sanitized logs"| Logs["CloudWatch Logs"]
-    Lambda -.->|"partial batch failure"| ESM
-    ESM -.->|"retry failed record"| SQS
-    SQS -.->|"redrive after retry limit"| DLQ["Dead-letter queue"]
+    Lambda -.->|"sanitized structured logs"| Logs["CloudWatch Logs"]
+    Lambda -.->|"report failed message ID"| ESM
+    SQS -.->|"redrive after maxReceiveCount"| DLQ["Dead-letter queue"]
   end
-
-  classDef sync fill:#dbeafe,stroke:#2563eb,color:#172554;
-  classDef human fill:#ffedd5,stroke:#ea580c,color:#431407;
-  classDef async fill:#ede9fe,stroke:#7c3aed,color:#2e1065;
-  classDef observe fill:#dcfce7,stroke:#16a34a,color:#052e16;
-  classDef recover fill:#fee2e2,stroke:#dc2626,color:#450a0a;
-  class User,UI,InvestigationAPI sync;
-  class Gate,SearchAPI human;
-  class SQS,ESM,Lambda,Secrets,Search async;
-  class Logs observe;
-  class DLQ recover;
 ```
 
-</details>
+## Live verification
 
-- Search requires explicit human authorization; candidate acceptance is a
-  separate human decision before evidence can enter a follow-up investigation.
-- The API persists the authorized action before dispatching its reference to
-  SQS; request payloads and case content are not placed on the queue.
-- CockroachDB is the durable source of truth for action state, candidates,
-  candidate-to-evidence links, and investigation snapshots.
-- Idempotency is enforced by the action idempotency key and the database-backed
-  claim transition, making duplicate or redelivered SQS messages safe no-ops.
-- Cost is bounded by at most two searches and five candidates per action, a
-  daily action budget, batch size 1, and maximum Lambda concurrency 3.
-- Lambda loads database and OpenAI credentials from Secrets Manager and emits
-  sanitized structured failures to CloudWatch Logs without logging payloads or
-  credentials.
-- Partial batch failures preserve per-record retries; messages that exhaust the
-  queue retry policy are moved to the DLQ for recovery. See
-  [the Evidence Scout operational documentation](docs/evidence-scout.md) for
-  detailed state, lease, retry, and security behavior.
-
-### Core investigation components
+The deployed AWS path was verified end to end on 18 August 2026:
 
 ```text
-app/api/investigate/route.ts       HTTP adapter and error responses
-lib/server/sherlock-engine.ts      Request preparation, OpenAI call, AJV validation
-lib/investigation.schema.json      Sole canonical investigation contract
-lib/wire-schema.ts                 Derived OpenAI Structured Outputs schema
-docs/investigation-engine.md       Frozen v3 reasoning specification and prompt source
-components/                        Baseline form, follow-up form, result view, learning diff
-examples/                          Case B inputs and validated offline snapshots
+SQS → Lambda → OpenAI web_search → CockroachDB
 ```
 
-[`types/sherlock.ts`](../types/sherlock.ts) mirrors the canonical response
-shape. UI code consumes those field names directly; it does not flatten or
-remap model responses. [`lib/investigation-validation.ts`](../lib/investigation-validation.ts)
-validates untrusted API and fixture payloads client-side before they enter
-snapshot state.
+Observed result:
 
-`lib/sherlock-schema.json` remains in the repository as a legacy artifact but
-is not part of the runtime request or response path.
+- final state: `completed`;
+- search calls: `1` (limit: `2`);
+- candidates: `4` (limit: `5`).
 
-## Fixtures and evaluation
+This is not a mocked architecture diagram: the governed round trip completed against deployed infrastructure.
 
-- [`examples/case-b.json`](../examples/case-b.json): baseline request fixture.
-- [`examples/case-b-baseline-snapshot.json`](../examples/case-b-baseline-snapshot.json):
-  validated baseline snapshot for offline rendering.
-- [`examples/case-b-evidence-e5.json`](../examples/case-b-evidence-e5.json):
-  follow-up certificate audit.
-- [`examples/case-b-iteration2-snapshot.json`](../examples/case-b-iteration2-snapshot.json):
-  validated live iteration-2 snapshot for offline replay.
-- [`docs/evaluation.md`](evaluation.md): Block 2B evaluation notes.
+## Technology
 
-Run the checks:
+- **Reasoning:** OpenAI GPT-5.6 with strict Structured Outputs
+- **Application:** Next.js, React, TypeScript
+- **Validation:** JSON Schema and AJV
+- **Persistence:** CockroachDB
+- **Async execution:** AWS SQS and Lambda
+- **Recovery:** SQS retries and dead-letter queue
+- **Secrets:** AWS Secrets Manager
+- **Observability:** CloudWatch Logs
+- **Infrastructure:** AWS SAM / CloudFormation
+- **External evidence:** OpenAI `web_search`
+
+## Investigation model
+
+Each investigation is a validated, versioned snapshot containing:
+
+- observed outcome and expected behavior;
+- canonical evidence ledger;
+- expectation matrix;
+- anomalies and missing observations;
+- competing hypotheses with confidence and refutation conditions;
+- hypothesis graveyard;
+- root-cause assessment;
+- missing evidence ranked by information value;
+- one next discriminating test;
+- learning diff between iterations;
+- model, prompt, source, and artifact lineage.
+
+The canonical contract lives in `lib/investigation.schema.json`. Model responses use strict Structured Outputs and are validated server-side before reaching the client.
+
+## Reliability and evaluation
+
+PRIOR treats evaluation artifacts as evidence about the system itself.
+
+- Invalid model responses are rejected by schema validation.
+- The engine retries one invalid response before returning a controlled error.
+- Semantic evaluations verify that the proposed next test structurally discriminates between hypotheses.
+- Local stores are dependency-injected in tests to avoid shared mutable state.
+- Queue delivery is idempotent and safe under duplicate or redelivered messages.
+- Candidate acceptance and snapshot linking are transactional.
+
+Final validation for this slice:
+
+- 40/40 test files passing;
+- full suite repeated three times without concurrency failures;
+- TypeScript: PASS;
+- ESLint: PASS;
+- production build: PASS;
+- SAM build and validation: PASS;
+- live AWS E2E: PASS.
+
+## Run locally
+
+```bash
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+Create an ignored `.env.local` file with the environment variables required by the execution mode you intend to use. Never commit API keys, database URLs, AWS credentials, certificates, or local environment files.
+
+Useful checks:
 
 ```bash
 npm test
@@ -328,12 +199,16 @@ npm run lint
 npm run build
 ```
 
-With a local API key configured, run the live baseline evaluator:
+Detailed operational documentation is available in [`docs/evidence-scout.md`](docs/evidence-scout.md).
 
-```bash
-npm run eval:case-b
-```
+## Built with Codex + GPT-5.6
 
-The evaluator writes raw model output to the ignored
-`.sherlock/case-b-live-result.json` and exits non-zero when a semantic
-assertion fails.
+PRIOR was developed as a sequence of horizontal, end-to-end slices with explicit acceptance criteria: contract, reasoning, UI, persistence, governed search, cloud execution, observability, and live verification.
+
+Codex was used as the engineering collaborator to implement, test, diagnose, and document each slice. GPT-5.6 powers the investigation engine under a versioned reasoning specification rather than as a conversational wrapper.
+
+## Product thesis
+
+PRIOR is built for investigations where being persuasive is not the same as being correct.
+
+It combines causal reasoning, falsification, human authorization, bounded autonomy, and durable provenance in one system. It does not ask users to trust a confident answer. It gives them a controlled process for deciding when confidence has been earned.
