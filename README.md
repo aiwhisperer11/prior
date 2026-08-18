@@ -218,6 +218,77 @@ prompt specification.
 
 ## Architecture
 
+### PRIOR Evidence Scout
+
+![PRIOR Evidence Scout architecture](docs/assets/evidence-scout-architecture.svg)
+
+<details>
+<summary>Mermaid source</summary>
+
+```mermaid
+flowchart TD
+  subgraph Sync["Synchronous UI and API"]
+    User["User / browser"] --> UI["Next.js UI"]
+    UI --> InvestigationAPI["Investigation API"]
+    InvestigationAPI <--> DB[("CockroachDB<br/>actions, candidates, snapshots")]
+  end
+
+  subgraph Human["Human authorization boundary"]
+    UI --> Gate{"Explicit human authorization"}
+    Gate --> SearchAPI["Evidence Scout authorization API"]
+  end
+
+  subgraph Async["Governed asynchronous execution"]
+    SearchAPI -->|"persist authorized action"| DB
+    SearchAPI -->|"enqueue action reference"| SQS["SQS queue"]
+    SQS --> ESM["Event Source Mapping<br/>batch size 1<br/>maximum concurrency 3"]
+    ESM --> Lambda["Evidence Scout Lambda"]
+    Secrets["Secrets Manager<br/>database URL and OpenAI API key"] --> Lambda
+    Lambda --> Search["OpenAI web_search"]
+    Lambda -->|"persist state and candidates"| DB
+  end
+
+  subgraph Recovery["Observability and recovery"]
+    Lambda -.->|"structured sanitized logs"| Logs["CloudWatch Logs"]
+    Lambda -.->|"partial batch failure"| ESM
+    ESM -.->|"retry failed record"| SQS
+    SQS -.->|"redrive after retry limit"| DLQ["Dead-letter queue"]
+  end
+
+  classDef sync fill:#dbeafe,stroke:#2563eb,color:#172554;
+  classDef human fill:#ffedd5,stroke:#ea580c,color:#431407;
+  classDef async fill:#ede9fe,stroke:#7c3aed,color:#2e1065;
+  classDef observe fill:#dcfce7,stroke:#16a34a,color:#052e16;
+  classDef recover fill:#fee2e2,stroke:#dc2626,color:#450a0a;
+  class User,UI,InvestigationAPI sync;
+  class Gate,SearchAPI human;
+  class SQS,ESM,Lambda,Secrets,Search async;
+  class Logs observe;
+  class DLQ recover;
+```
+
+</details>
+
+- Search requires explicit human authorization; candidate acceptance is a
+  separate human decision before evidence can enter a follow-up investigation.
+- The API persists the authorized action before dispatching its reference to
+  SQS; request payloads and case content are not placed on the queue.
+- CockroachDB is the durable source of truth for action state, candidates,
+  candidate-to-evidence links, and investigation snapshots.
+- Idempotency is enforced by the action idempotency key and the database-backed
+  claim transition, making duplicate or redelivered SQS messages safe no-ops.
+- Cost is bounded by at most two searches and five candidates per action, a
+  daily action budget, batch size 1, and maximum Lambda concurrency 3.
+- Lambda loads database and OpenAI credentials from Secrets Manager and emits
+  sanitized structured failures to CloudWatch Logs without logging payloads or
+  credentials.
+- Partial batch failures preserve per-record retries; messages that exhaust the
+  queue retry policy are moved to the DLQ for recovery. See
+  [the Evidence Scout operational documentation](docs/evidence-scout.md) for
+  detailed state, lease, retry, and security behavior.
+
+### Core investigation components
+
 ```text
 app/api/investigate/route.ts       HTTP adapter and error responses
 lib/server/sherlock-engine.ts      Request preparation, OpenAI call, AJV validation
